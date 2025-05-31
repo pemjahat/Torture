@@ -13,30 +13,40 @@ include(FetchContent)
 # Declare SDL2 to be fetched
 include(FetchContent)
 FetchContent_Declare(
-    SDL3
-    URL https://www.libsdl.org/release/SDL3-devel-3.2.14-VC.zip    
+    SDL2
+    URL https://www.libsdl.org/release/SDL2-devel-2.32.6-VC.zip    
 )
-FetchContent_MakeAvailable(SDL3)
+FetchContent_MakeAvailable(SDL2)
 
 # Add executable
 add_executable(${PROJECT_NAME} main.cpp)
 
-# Set include directories for SDL2
+# Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${sdl3_SOURCE_DIR}/include
+    ${sdl2_SOURCE_DIR}/include    
 )
 
-# Link SDL3 library
+# Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    ${sdl3_SOURCE_DIR}/lib/x64/SDL3.lib    
+    ${sdl2_SOURCE_DIR}/lib/x64/SDL2.lib 
+    ${sdl2_SOURCE_DIR}/lib/x64/SDL2main.lib 
+    d3d12
+    dxgi
+    d3dcompiler
+    dxguid #dxgi debug layer
 )
 
-# Copy SDL3.dll to the output directory
+# Copy SDL2.dll to the output directory
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${sdl3_SOURCE_DIR}/lib/x64/SDL3.dll"
+    "${sdl2_SOURCE_DIR}/lib/x64/SDL2.dll"
     $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
+
+# Windows-specific linking
+if(WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE user32 gdi32 winmm imm32 ole32 oleaut32 version uuid)
+endif()
 
 # Set SDL_Window as the startup project for Visual Studio
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
