@@ -1,5 +1,7 @@
 #include <SDL.h>
 #include <SDL_syswm.h> // Added for SDL_GetWindowWMInfo
+#include <imgui.h>
+#include <imgui_impl_dx12.h>
 #include <iostream>
 #include <d3d12.h>
 #include <dxgi1_4.h>
@@ -7,6 +9,7 @@
 #include <wrl/client.h> // For ComPtr
 #include <string>
 #include <cassert>
+#include <vector>
 
 #ifdef _DEBUG
 #define DX12_ENABLE_DEBUG_LAYER
@@ -17,6 +20,94 @@
 #endif
 
 using Microsoft::WRL::ComPtr;
+
+// static const
+static const int NUM_BACK_BUFFER = 2;
+static const int SRV_HEAP_SIZE = 64;
+
+// Vertex structure
+struct Vertex {
+    float position[3];
+    float color[4];
+};
+
+// d3d12 structure
+struct FrameContext
+{
+    ComPtr<ID3D12CommandAllocator> CommandAllocator;
+    UINT64 FenceValue;
+};
+
+struct DescriptorHeapAllocator
+{
+    ComPtr<ID3D12DescriptorHeap> Heap = nullptr;
+    D3D12_DESCRIPTOR_HEAP_TYPE  HeapType = D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
+    D3D12_CPU_DESCRIPTOR_HANDLE HeapStartCpu;
+    D3D12_GPU_DESCRIPTOR_HANDLE HeapStartGpu;
+    UINT    HeapHandleIncrement;
+    std::vector<int>    FreeIndices;
+
+    void Create(ComPtr<ID3D12Device> device, ComPtr<ID3D12DescriptorHeap> heap)
+    {
+        Heap = heap;
+        D3D12_DESCRIPTOR_HEAP_DESC desc = heap->GetDesc();
+        HeapType = desc.Type;
+        HeapStartCpu = Heap->GetCPUDescriptorHandleForHeapStart();
+        HeapStartGpu = Heap->GetGPUDescriptorHandleForHeapStart();
+        HeapHandleIncrement = device->GetDescriptorHandleIncrementSize(HeapType);
+        FreeIndices.reserve(desc.NumDescriptors);
+        for (int n = desc.NumDescriptors; n > 0; n--)
+            FreeIndices.push_back(n - 1);
+    }
+
+    void Destroy()
+    {
+        Heap = nullptr;
+        FreeIndices.clear();
+    }
+
+    void Alloc(D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_desc_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_desc_handle)
+    {
+        int idx = FreeIndices.back();
+        FreeIndices.pop_back();
+        out_cpu_desc_handle->ptr = HeapStartCpu.ptr + (idx * HeapHandleIncrement);
+        out_gpu_desc_handle->ptr = HeapStartGpu.ptr + (idx * HeapHandleIncrement);
+    }
+
+    void Free(D3D12_CPU_DESCRIPTOR_HANDLE cpu_desc_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_desc_handle)
+    {
+        int cpu_idx = (int)((cpu_desc_handle.ptr - HeapStartCpu.ptr) / HeapHandleIncrement);
+        int gpu_idx = (int)((gpu_desc_handle.ptr - HeapStartGpu.ptr) / HeapHandleIncrement);
+        FreeIndices.push_back(cpu_idx);
+    }
+};
+
+// Global variable
+static FrameContext g_frameContext[NUM_BACK_BUFFER] = {};
+static UINT g_frameIndex = 0;
+
+static ComPtr<ID3D12Device>         g_D3DDevice = nullptr;
+static ComPtr<ID3D12DescriptorHeap> g_rtvDescHeap = nullptr;
+static ComPtr<ID3D12DescriptorHeap> g_srvDescHeap = nullptr;
+static DescriptorHeapAllocator      g_descHeapAllocator;
+
+static ComPtr<ID3D12CommandQueue>   g_commandQueue = nullptr;
+static ComPtr<ID3D12GraphicsCommandList>    g_commandList = nullptr;
+static ComPtr<ID3D12Fence>  g_fence = nullptr;
+static HANDLE   g_fenceEvent = nullptr;
+static UINT64   g_fenceLastSignaledValue = 0;
+
+static ComPtr<IDXGISwapChain3>  g_SwapChain = nullptr;
+static ComPtr<ID3D12Resource>   g_rtvResource[NUM_BACK_BUFFER] = {};
+static D3D12_CPU_DESCRIPTOR_HANDLE  g_rtvDescriptor[NUM_BACK_BUFFER] = {};
+
+// Fwd declaration
+//bool CreateDeviceD3D(HWND hwnd);
+//void CleanupDeviceD3D();
+//void CreateRenderTarget();
+//void CleanupRenderTarget();
+//void WaitForLastSubmittedFrame();
+//FrameContext* WaitForNextFrameResources();
 
 // Helper function to format HRESULT error messages
 std::string GetHResultErrorMessage(HRESULT hr) {
@@ -95,11 +186,7 @@ SDL_Window* InitSDL3()
     return window;    
 }
 
-// Vertex structure
-struct Vertex {
-    float position[3];
-    float color[4];
-};
+
 
 bool InitD3D12(SDL_Window* window, ComPtr<ID3D12Device>& device, ComPtr<IDXGISwapChain3>& swapChain, ComPtr<ID3D12CommandQueue>& commandQueue)
 {
@@ -145,8 +232,7 @@ bool InitD3D12(SDL_Window* window, ComPtr<ID3D12Device>& device, ComPtr<IDXGISwa
 
     // Check device removal
     if (device->GetDeviceRemovedReason() != S_OK) {
-        std::cerr << "Device removed: " << GetHResultErrorMessage(device->GetDeviceRemovedReason())
-            << " (HRESULT: 0x" << std::hex << device->GetDeviceRemovedReason() << std::dec << ")" << std::endl;
+        LogError("Device removed", device->GetDeviceRemovedReason());
         return false;
     }
 
@@ -166,14 +252,13 @@ bool InitD3D12(SDL_Window* window, ComPtr<ID3D12Device>& device, ComPtr<IDXGISwa
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;    
     hr = device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&commandQueue));
     if (FAILED(hr)) {
-        std::cerr << "CreateCommandQueue failed: " << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("CreateCommandQueue failed", hr);
         return false;
     }
 
     SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);
-    if (!SDL_GetWindowWMInfo(window, &wmInfo)) {
+    if (!SDL_GetWindowWMInfo(window, &wmInfo)) {        
         std::cerr << "SDL_GetWindowWMInfo failed: " << SDL_GetError() << std::endl;
         return false;
     }
@@ -228,20 +313,15 @@ bool InitD3D12(SDL_Window* window, ComPtr<ID3D12Device>& device, ComPtr<IDXGISwa
         // Cast to IDXGISwapChain4
         hr = tempSwapChain.As(&swapChain);
         if (FAILED(hr)) {
-            std::cerr << "Failed to cast swap chain to IDXGISwapChain4: " << GetHResultErrorMessage(hr)
-                << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+            LogError("Failed to cast swap chain to IDXGISwapChain4", hr);
             return false;
         }
         SDL_Log("Swap chain cast to IDXGISwapChain4 successfully");
         return true;
     }
     else {
-        std::cerr << "CreateSwapChainForHwnd failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("CreateSwapChainForHwnd failed", hr);
     }
-
-    
 
     return true;
 }
@@ -282,17 +362,31 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Bunch of parameters
+    ComPtr<ID3D12DescriptorHeap> rtvHeap;
+    ComPtr<ID3D12DescriptorHeap> srvHeap;
+
     // Create RTV descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
     rtvHeapDesc.NumDescriptors = 2;
     rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    ComPtr<ID3D12DescriptorHeap> rtvHeap;
     HRESULT hr = device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&rtvHeap));
     if (FAILED(hr)) {
-        std::cerr << "Create descriptor heap failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("Create rtv descriptor heap failed", hr);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
+
+    // Create SRV descriptor heap for IMGUI
+    D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+    srvHeapDesc.NumDescriptors = 1;
+    srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    hr = device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&srvHeap));
+    if (FAILED(hr)) {
+        LogError("Create srv descriptor heap failed", hr);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
@@ -305,9 +399,7 @@ int main(int argc, char* argv[]) {
     for (UINT i = 0; i < 2; ++i) {
         hr = swapChain->GetBuffer(i, IID_PPV_ARGS(&renderTargets[i]));
         if (FAILED(hr)) {
-            std::cerr << "Create descriptor heap failed "
-                << GetHResultErrorMessage(hr)
-                << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+            LogError("Create descriptor heap failed", hr);
             SDL_DestroyWindow(window);
             SDL_Quit();
             return 1;
@@ -321,9 +413,7 @@ int main(int argc, char* argv[]) {
     for (UINT i = 0; i < 2; ++i) {
         hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocators[i]));
         if (FAILED(hr)) {
-            std::cerr << "Create command allocator failed "
-                << GetHResultErrorMessage(hr)
-                << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+            LogError("Create command allocator failed", hr);
             SDL_DestroyWindow(window);
             SDL_Quit();
             return 1;
@@ -334,9 +424,7 @@ int main(int argc, char* argv[]) {
     ComPtr<ID3D12GraphicsCommandList> commandList;
     hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocators[0].Get(), nullptr, IID_PPV_ARGS(&commandList));
     if (FAILED(hr)) {
-        std::cerr << "Create command list failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("Create command list failed", hr);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
@@ -374,9 +462,7 @@ int main(int argc, char* argv[]) {
         IID_PPV_ARGS(&vertexBuffer)
     );
     if (FAILED(hr)) {
-        std::cerr << "Create commited resource failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("Create commited resource failed", hr);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
@@ -401,9 +487,7 @@ int main(int argc, char* argv[]) {
     ComPtr<ID3DBlob> error;
     hr = D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
     if (FAILED(hr)) {
-        std::cerr << "D3DSerializeRootSignature failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("D3DSerializeRootSignature failed", hr);
         if (error) {
             std::cerr << static_cast<const char*>(error->GetBufferPointer());
         }
@@ -415,9 +499,7 @@ int main(int argc, char* argv[]) {
     ComPtr<ID3D12RootSignature> rootSignature;
     hr = device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&rootSignature));
     if (FAILED(hr)) {
-        std::cerr << "CreateRootSignature failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("CreateRootSignature failed", hr);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
@@ -429,9 +511,7 @@ int main(int argc, char* argv[]) {
 
     hr = D3DCompileFromFile(L"basic.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "VSMain", "vs_5_0", 0, 0, &vertexShader, &error);
     if (FAILED(hr)) {
-        std::cerr << "Vertex shader compilation failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("Vertex shader compilation failed", hr);
         if (error) {
             std::cerr << static_cast<const char*>(error->GetBufferPointer());
         }
@@ -442,9 +522,7 @@ int main(int argc, char* argv[]) {
 
     hr = D3DCompileFromFile(L"basic.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "PSMain", "ps_5_0", 0, 0, &pixelShader, &error);
     if (FAILED(hr)) {
-        std::cerr << "Pixel shader compilation failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("Pixel shader compilation failed", hr);
         if (error) {
             std::cerr << static_cast<const char*>(error->GetBufferPointer());
         }
@@ -499,9 +577,7 @@ int main(int argc, char* argv[]) {
     ComPtr<ID3D12PipelineState> pipelineState;
     hr = device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pipelineState));
     if (FAILED(hr)) {
-        std::cerr << "CreateGraphicsPipelineState failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("CreateGraphicsPipelineState failed", hr);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;
@@ -519,9 +595,7 @@ int main(int argc, char* argv[]) {
     UINT64 fenceValues[2] = { 0, 0 };
     hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
     if (FAILED(hr)) {
-        std::cerr << "CreateFence failed "
-            << GetHResultErrorMessage(hr)
-            << " (HRESULT: 0x" << std::hex << hr << std::dec << ")" << std::endl;
+        LogError("CreateFence failed", hr);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 1;

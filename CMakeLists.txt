@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-project(SDL_Window)
 
+# Project settings
+project(SDL_Window)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -11,15 +12,33 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 include(FetchContent)
 
 # Declare SDL2 to be fetched
-include(FetchContent)
 FetchContent_Declare(
     SDL2
     URL https://www.libsdl.org/release/SDL2-devel-2.32.6-VC.zip    
 )
 FetchContent_MakeAvailable(SDL2)
 
+# Imgui
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.90.9
+)
+FetchContent_MakeAvailable(imgui)
+
 # Add executable
 add_executable(${PROJECT_NAME} main.cpp)
+
+# Add imgui source file (need to compile source)
+set(IMGUI_SOURCES
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+)
+target_sources(${PROJECT_NAME} PRIVATE ${IMGUI_SOURCES})
 
 # Add hlsl into project(no compile)
 set(SHADER_FILES basic.hlsl)
@@ -52,7 +71,9 @@ endforeach()
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${sdl2_SOURCE_DIR}/include    
+    ${sdl2_SOURCE_DIR}/include
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
 )
 
 # Link libraries
