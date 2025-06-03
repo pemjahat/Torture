@@ -21,8 +21,7 @@ FetchContent_MakeAvailable(SDL2)
 # Imgui
 FetchContent_Declare(
     imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG v1.90.9
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git    
 )
 FetchContent_MakeAvailable(imgui)
 
@@ -35,8 +34,9 @@ set(IMGUI_SOURCES
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
 )
 target_sources(${PROJECT_NAME} PRIVATE ${IMGUI_SOURCES})
 
