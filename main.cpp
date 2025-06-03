@@ -26,6 +26,9 @@ static const int NUM_FRAME = 2; // Not really back buffer, for frame swap
 static const int NUM_BACK_BUFFER = 2;
 static const int SRV_HEAP_SIZE = 64;
 
+static const UINT WinWidth = 800;
+static const UINT WinHeight = 600;
+
 // Vertex structure
 struct Vertex {
     float position[3];
@@ -33,12 +36,6 @@ struct Vertex {
 };
 
 // d3d12 structure
-struct FrameContext
-{
-    ComPtr<ID3D12CommandAllocator> CommandAllocator;
-    UINT64 FenceValue;
-};
-
 struct DescriptorHeapAllocator
 {
     ComPtr<ID3D12DescriptorHeap> Heap = nullptr;
@@ -84,32 +81,32 @@ struct DescriptorHeapAllocator
 };
 
 // Global variable
-static FrameContext g_frameContext[NUM_FRAME] = {};
-static UINT g_frameIndex = 0;
-
 static ComPtr<ID3D12Device>         g_d3dDevice = nullptr;
 static ComPtr<ID3D12DescriptorHeap> g_rtvDescHeap = nullptr;
 static ComPtr<ID3D12DescriptorHeap> g_srvDescHeap = nullptr;
 static DescriptorHeapAllocator      g_descHeapAllocator;
 
+static ComPtr<ID3D12CommandAllocator>   g_commandAllocator = nullptr;
 static ComPtr<ID3D12CommandQueue>   g_commandQueue = nullptr;
 static ComPtr<ID3D12GraphicsCommandList>    g_commandList = nullptr;
+
+// Synchronization
 static ComPtr<ID3D12Fence>  g_fence = nullptr;
 static HANDLE   g_fenceEvent = nullptr;
-static UINT64   g_fenceLastSignaledValue = 0;
+static UINT64   g_fenceValue = 0;
+//static UINT64   g_fenceLastSignaledValue = 0;
+static UINT g_frameIndex = 0;
 
 static ComPtr<IDXGISwapChain3>  g_swapChain = nullptr;
 static ComPtr<ID3D12Resource>   g_rtvResource[NUM_BACK_BUFFER] = {};
 static D3D12_CPU_DESCRIPTOR_HANDLE  g_rtvDescHandle[NUM_BACK_BUFFER] = {};
-static HANDLE   g_swapChainWaitableObject = nullptr;
 
 // Fwd declaration
 bool CreateDeviceD3D(HWND hwnd);
 void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
-void WaitForLastSubmittedFrame();
-FrameContext* WaitForNextFrameResource();
+void WaitForPreviousFrame();
 
 void LogError(const char* message, HRESULT hr = S_OK)
 {
@@ -143,7 +140,7 @@ void WaitForGPU(ID3D12CommandQueue* commandQueue, ID3D12Fence* fence, UINT64& fe
 }
 
 // Function to initialize SDL3 and create a window
-SDL_Window* InitSDL2() 
+SDL_Window* InitSDL2(UINT width, UINT height) 
 {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         std::cerr << "SDL initialization failed: " << SDL_GetError() << std::endl;
@@ -157,8 +154,8 @@ SDL_Window* InitSDL2()
         "D3D12 Triangle",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
-        800,
-        600,
+        width,
+        height,
         window_flags // Ensure D3D compatibility
     );
 
@@ -190,7 +187,7 @@ HWND GetHwnd(SDL_Window* window)
 // Main
 int main(int, char**)
 {
-    SDL_Window* window = InitSDL2();
+    SDL_Window* window = InitSDL2(WinWidth, WinHeight);
     if (window == nullptr) {
         return 1;
     }
@@ -248,6 +245,8 @@ int main(int, char**)
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     // Main loop
+    WaitForPreviousFrame();
+
     bool done = false;
     SDL_Event event;
     while (!done) {
@@ -268,13 +267,6 @@ int main(int, char**)
 
         if (done)
             break;
-
-        // Handle window screen locked
-       /* if ((g_swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) || ::IsIconic(hwnd))
-        {
-            ::Sleep(10);
-            continue;
-        }*/
 
         // Start dear imgui frame
         ImGui_ImplDX12_NewFrame();
@@ -319,15 +311,13 @@ int main(int, char**)
         // Render
         ImGui::Render();
 
-        FrameContext* frameCtx = WaitForNextFrameResource();
-        UINT backBufferIdx = g_swapChain->GetCurrentBackBufferIndex();
-        frameCtx->CommandAllocator->Reset();
-        g_commandList->Reset(frameCtx->CommandAllocator.Get(), nullptr);
+        g_commandAllocator->Reset();
+        g_commandList->Reset(g_commandAllocator.Get(), nullptr);
 
         // Transition back buffer to RENDER_TARGET
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource = g_rtvResource[backBufferIdx].Get();
+        barrier.Transition.pResource = g_rtvResource[g_frameIndex].Get();
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
@@ -335,8 +325,8 @@ int main(int, char**)
 
         // Render ImGui graphics
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
-        g_commandList->ClearRenderTargetView(g_rtvDescHandle[backBufferIdx], clear_color_with_alpha, 0, nullptr);
-        g_commandList->OMSetRenderTargets(1, &g_rtvDescHandle[backBufferIdx], FALSE, nullptr);
+        g_commandList->ClearRenderTargetView(g_rtvDescHandle[g_frameIndex], clear_color_with_alpha, 0, nullptr);
+        g_commandList->OMSetRenderTargets(1, &g_rtvDescHandle[g_frameIndex], FALSE, nullptr);
             
         ID3D12DescriptorHeap* ppDescHeaps[] = { g_srvDescHeap.Get() };
         g_commandList->SetDescriptorHeaps(1, ppDescHeaps);
@@ -354,13 +344,11 @@ int main(int, char**)
         // Present
         HRESULT hr = g_swapChain->Present(1, 0);
             
-        UINT64 fenceValue = g_fenceLastSignaledValue + 1;
-        g_commandQueue->Signal(g_fence.Get(), fenceValue);
-        g_fenceLastSignaledValue = fenceValue;
-        frameCtx->FenceValue = fenceValue;
+        WaitForPreviousFrame();
     }
 
-    WaitForLastSubmittedFrame();
+    //WaitForLastSubmittedFrame();
+    //WaitForPreviousFrame();
 
     // Cleanup
     ImGui_ImplDX12_Shutdown();
@@ -385,10 +373,6 @@ bool CreateDeviceD3D(HWND hwnd)
     swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapChainDesc.BufferCount = NUM_BACK_BUFFER;
     swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    swapChainDesc.Stereo = FALSE;
-    swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
-    swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-    swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
     // Enable debug layer (optional, for development)
 #ifdef DX12_ENABLE_DEBUG_LAYER
@@ -463,27 +447,27 @@ bool CreateDeviceD3D(HWND hwnd)
     }
 
     // Command allocator, command list
-    for (UINT i = 0; i < NUM_FRAME; ++i) {
-        hr = g_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&g_frameContext[i].CommandAllocator));
-        if (FAILED(hr)) {
-            LogError("Create command allocator failed", hr);
-            return false;
-        }
+    hr = g_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&g_commandAllocator));
+    if (FAILED(hr)) {
+        LogError("Create command allocator failed", hr);
+        return false;
     }
 
-    hr = g_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, g_frameContext[0].CommandAllocator.Get(), nullptr, IID_PPV_ARGS(&g_commandList));
+    hr = g_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, g_commandAllocator.Get(), nullptr, IID_PPV_ARGS(&g_commandList));
     if (FAILED(hr)) {
         LogError("Create command list failed", hr);
         return false;
     }
     g_commandList->Close();
 
-    // Fence and event
+    // Synchronization -> Fence and event
     hr = g_d3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_fence));
     if (FAILED(hr)) {
         LogError("CreateFence failed", hr);
         return false;
     }
+    g_fenceValue = 1;
+
     g_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (!g_fenceEvent) {
         std::cerr << "CreateEvent failed " << std::endl;
@@ -509,22 +493,21 @@ bool CreateDeviceD3D(HWND hwnd)
     );
     if (SUCCEEDED(hr)) {
         SDL_Log("Swap chain created successfully");
+        hr = tempSwapChain.As(&g_swapChain);
+        g_frameIndex = g_swapChain->GetCurrentBackBufferIndex();
+
+        if (FAILED(hr)) {
+            LogError("Cast swap chain failed", hr);
+            return false;
+        }
     }
     else {
         LogError("CreateSwapChainForHwnd failed", hr);
         return false;
     }
-    hr = tempSwapChain->QueryInterface(IID_PPV_ARGS(&g_swapChain));
-    if (FAILED(hr)) {
-        LogError("QueryInterface failed", hr);
-        return false;
-    }
-
+    
     tempSwapChain.Reset();
     factory.Reset();
-
-    g_swapChain->SetMaximumFrameLatency(NUM_BACK_BUFFER);
-    g_swapChainWaitableObject = g_swapChain->GetFrameLatencyWaitableObject();
 
     CreateRenderTarget();
     return true;
@@ -535,9 +518,8 @@ void CleanupDeviceD3D()
     CleanupRenderTarget();
     g_descHeapAllocator.Destroy();
     if (g_swapChain) { g_swapChain->SetFullscreenState(false, nullptr); g_swapChain.Reset(); }
-    for (UINT i = 0; i < NUM_FRAME; ++i)
-        if (g_frameContext[i].CommandAllocator) { g_frameContext[i].CommandAllocator.Reset(); }
     if (g_commandQueue) { g_commandQueue.Reset(); }
+    if (g_commandAllocator) { g_commandAllocator.Reset(); }
     if (g_commandList) { g_commandList.Reset(); }
     if (g_rtvDescHeap) { g_rtvDescHeap.Reset(); }
     if (g_srvDescHeap) { g_srvDescHeap.Reset(); }
@@ -568,47 +550,23 @@ void CreateRenderTarget()
 
 void CleanupRenderTarget()
 {
-    WaitForLastSubmittedFrame();
-
+    WaitForPreviousFrame();
     for (UINT i = 0; i < NUM_BACK_BUFFER; ++i)
         if (g_rtvResource[i]) { g_rtvResource[i].Reset(); }
 }
 
-void WaitForLastSubmittedFrame()
+void WaitForPreviousFrame()
 {
-    FrameContext* frameCtx = &g_frameContext[g_frameIndex % NUM_FRAME];
+    // Signal and increment fence value
+    const UINT64 fence = g_fenceValue;
+    g_commandQueue->Signal(g_fence.Get(), fence);
+    g_fenceValue++;
 
-    UINT64 fenceValue = frameCtx->FenceValue;
-    if (fenceValue == 0)
-        return; // no signal yet
-
-    frameCtx->FenceValue = 0;
-    if (g_fence->GetCompletedValue() >= fenceValue)
-        return;
-
-    g_fence->SetEventOnCompletion(fenceValue, g_fenceEvent);
-    WaitForSingleObject(g_fenceEvent, INFINITE);
-}
-
-FrameContext* WaitForNextFrameResource()
-{
-    UINT nextFrameIndex = g_frameIndex + 1;
-    g_frameIndex = nextFrameIndex;
-
-    HANDLE waitableObject[] = { g_swapChainWaitableObject, nullptr };
-    DWORD numWaitableObjects = 1;
-
-    FrameContext* frameCtx = &g_frameContext[nextFrameIndex % NUM_FRAME];
-    UINT64 fenceValue = frameCtx->FenceValue;
-    if (fenceValue != 0)    // no fence was signal
+    if (g_fence->GetCompletedValue() < fence)
     {
-        frameCtx->FenceValue = 0;
-        g_fence->SetEventOnCompletion(fenceValue, g_fenceEvent);
-        waitableObject[1] = g_fenceEvent;
-        numWaitableObjects = 2;
+        g_fence->SetEventOnCompletion(fence, g_fenceEvent);
+        WaitForSingleObject(g_fenceEvent, INFINITE);
     }
 
-    WaitForMultipleObjects(numWaitableObjects, waitableObject, TRUE, INFINITE);
-
-    return frameCtx;
+    g_frameIndex = g_swapChain->GetCurrentBackBufferIndex();
 }
