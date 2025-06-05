@@ -21,14 +21,11 @@ static DescriptorHeapAllocator  g_descHeapAllocator;
 RenderApplication::RenderApplication(UINT Width, UINT Height) :
     m_width(Width),
     m_height(Height),
-    m_frameIndex(0)
+    m_frameIndex(0),
+    m_fenceValue{}
 {
-
-}
-
-RenderApplication::~RenderApplication()
-{
-
+    m_viewport = { 0.f, 0.f, (float)m_width, (float)m_height };
+    m_scissorRect = { 0, 0, (LONG)m_width, (LONG)m_height };
 }
 
 void RenderApplication::OnInit(SDL_Window* window)
@@ -136,6 +133,123 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle) { return g_descHeapAllocator.Free(cpu_handle, gpu_handle); };
     ImGui_ImplDX12_Init(&init_info);
 
+    // Create empty root signature
+    D3D12_ROOT_SIGNATURE_DESC signatureDesc;
+    signatureDesc.NumParameters = 0;        // No root parameters
+    signatureDesc.pParameters = nullptr;     // No root parameters
+    signatureDesc.NumStaticSamplers = 0;    // No static samplers
+    signatureDesc.pStaticSamplers = nullptr; // No static samplers
+    signatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    ComPtr<ID3DBlob> signature;
+    ComPtr<ID3DBlob> error;
+    CheckHRESULT(D3D12SerializeRootSignature(&signatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
+    CheckHRESULT(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
+
+    // Create pipeline state, compile, load shaders
+    ComPtr<ID3DBlob> vertexShader;
+    ComPtr<ID3DBlob> pixelShader;
+#ifdef DX12_ENABLE_DEBUG_LAYER
+    UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+    UINT compileFlags = 0;
+#endif
+    CheckHRESULT(D3DCompileFromFile(L"basic.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
+    CheckHRESULT(D3DCompileFromFile(L"basic.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
+    
+    D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+    };
+
+    D3D12_RASTERIZER_DESC rasterizerDesc = {};
+    rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+    rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
+    rasterizerDesc.FrontCounterClockwise = FALSE;
+    rasterizerDesc.DepthBias = 0;
+    rasterizerDesc.DepthBiasClamp = 0.0f;
+    rasterizerDesc.SlopeScaledDepthBias = 0.0f;
+    rasterizerDesc.DepthClipEnable = TRUE;
+    rasterizerDesc.MultisampleEnable = FALSE;
+    rasterizerDesc.AntialiasedLineEnable = FALSE;
+    rasterizerDesc.ForcedSampleCount = 0;
+    rasterizerDesc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+    // Manually initialize blend state (replacing CD3DX12_BLEND_DESC)
+    D3D12_BLEND_DESC blendDesc = {};
+    blendDesc.AlphaToCoverageEnable = FALSE;
+    blendDesc.IndependentBlendEnable = FALSE;
+    for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
+        blendDesc.RenderTarget[i].BlendEnable = FALSE;
+        blendDesc.RenderTarget[i].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    }
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
+    psoDesc.pRootSignature = m_rootSignature.Get();
+    psoDesc.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
+    psoDesc.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
+    psoDesc.RasterizerState = rasterizerDesc;
+    psoDesc.BlendState = blendDesc;
+    psoDesc.DepthStencilState.DepthEnable = FALSE;
+    psoDesc.DepthStencilState.StencilEnable = FALSE;
+    psoDesc.SampleMask = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    psoDesc.SampleDesc.Count = 1;
+    CheckHRESULT(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
+
+    // Create vertex buffer
+    Vertex triangleVertices[] =
+    {
+        { {  0.0f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }, // Top (red)More actions
+        { {  0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } }, // Bottom right (green)
+        { { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }  // 
+
+        /*{ { 0.0f, 0.25f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { 0.25f, -0.25f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { -0.25f, -0.25f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }*/
+    };
+    const UINT vertexBufferSize = sizeof(triangleVertices);
+
+    //Note: using upload heaps to transfer static data like vert buffers is not
+    // recommended. Every time the GPU needs it, the upload heap will be marshalled 
+    // over. Please read up on Default Heap usage. An upload heap is used here for 
+    // code simplicity and because there are very few verts to actually transfer.
+    ComPtr<ID3D12Resource> vertexBuffer;
+    D3D12_HEAP_PROPERTIES heapProps = {};
+    heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    D3D12_RESOURCE_DESC bufferDesc = {};
+    bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    bufferDesc.Width = vertexBufferSize;
+    bufferDesc.Height = 1;
+    bufferDesc.DepthOrArraySize = 1;
+    bufferDesc.MipLevels = 1;
+    bufferDesc.SampleDesc.Count = 1;
+    bufferDesc.SampleDesc.Quality = 0;
+    bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+    bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    CheckHRESULT(m_d3dDevice->CreateCommittedResource(
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &bufferDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&m_vertexBuffer)));
+
+    UINT8* pVertexDataBegin;
+    D3D12_RANGE readRange = { 0, 0 }; // We do not intend to read from this resource on the CPU.
+    CheckHRESULT(m_vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin)));
+    memcpy(pVertexDataBegin, triangleVertices, sizeof(triangleVertices));
+    m_vertexBuffer->Unmap(0, nullptr);
+
+    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
+    m_vertexBufferView.StrideInBytes = sizeof(Vertex);
+    m_vertexBufferView.SizeInBytes = vertexBufferSize;
+
     // Create command list
     CheckHRESULT(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
     CheckHRESULT(m_commandList->Close());
@@ -150,8 +264,10 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         CheckHRESULT(HRESULT_FROM_WIN32(GetLastError()));
     }
 
-    // Wait command list to execute, reusing same command list in main loop
-    WaitForPreviousFrame();
+    // Wait for the command list to execute; we are reusing the same command 
+    // list in our main loop but for now, we just want to wait for setup to 
+    // complete before continuing.
+    WaitForGpu();
 }
 
 void RenderApplication::OnUpdate()
@@ -169,13 +285,15 @@ void RenderApplication::OnRender()
 
     CheckHRESULT(m_swapChain->Present(0, 0));
 
-    WaitForPreviousFrame();
+    //WaitForPreviousFrame();
+    MoveToNextFrame();
 }
 
 void RenderApplication::OnDestroy()
 {
     // Ensure GPU no longer reference resource before cleanup
-    WaitForPreviousFrame();
+    //WaitForPreviousFrame();
+    WaitForGpu();
 
     CloseHandle(m_fenceEvent);
 
@@ -229,7 +347,7 @@ void RenderApplication::PopulateCommandList()
 
     CheckHRESULT(m_commandAllocator->Reset());
 
-    CheckHRESULT(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
+    CheckHRESULT(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
 
     // Transition back buffer to RENDER_TARGET
     D3D12_RESOURCE_BARRIER barrier = {};
@@ -241,12 +359,18 @@ void RenderApplication::PopulateCommandList()
     m_commandList->ResourceBarrier(1, &barrier);
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart());
-    rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;
+    rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;    
 
     //const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
     const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
     m_commandList->ClearRenderTargetView(rtvHandle, clear_color_with_alpha, 0, nullptr);
     m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+    m_commandList->RSSetViewports(1, &m_viewport);
+    m_commandList->RSSetScissorRects(1, &m_scissorRect);
+    m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+    m_commandList->DrawInstanced(3, 1, 0, 0);
 
     ID3D12DescriptorHeap* ppDescHeaps[] = { m_srvDescHeap.Get() };
     m_commandList->SetDescriptorHeaps(1, ppDescHeaps);
@@ -260,20 +384,33 @@ void RenderApplication::PopulateCommandList()
     CheckHRESULT(m_commandList->Close());
 }
 
-void RenderApplication::WaitForPreviousFrame()
+// Wait for pending gpu work to complete
+void RenderApplication::WaitForGpu()
 {
-    // WAITING FOR THE FRAME TO COMPLETE BEFORE CONTINUING IS NOT BEST PRACTICE.
-    // Check D3D12HelloFrameBuffering
-    
-    const UINT64 fence = m_fenceValue;
-    CheckHRESULT(m_commandQueue->Signal(m_fence.Get(), fence));
-    m_fenceValue++;
+    // Schedule signal command in queue
+    CheckHRESULT(m_commandQueue->Signal(m_fence.Get(), m_fenceValue));
 
-    if (m_fence->GetCompletedValue() < fence)
+    // Wait until fence processed
+    CheckHRESULT(m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent));
+    WaitForSingleObject(m_fenceEvent, INFINITE);
+
+    // Increment fence value for current frame
+    m_fenceValue++;
+}
+
+// Prepare to render next frame
+void RenderApplication::MoveToNextFrame()
+{
+    // Schedule signal command in queue (Increment fence value for next frame)
+    CheckHRESULT(m_commandQueue->Signal(m_fence.Get(), m_fenceValue++));
+
+    // Update frame index
+    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+
+    // If next frame is not ready to be renderer, wait until ready
+    if (m_fence->GetCompletedValue() < m_fenceValue)
     {
-        CheckHRESULT(m_fence->SetEventOnCompletion(fence, m_fenceEvent));
+        CheckHRESULT(m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent));
         WaitForSingleObject(m_fenceEvent, INFINITE);
     }
-
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }

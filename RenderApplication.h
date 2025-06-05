@@ -58,7 +58,6 @@ class RenderApplication
 {
 public:
     RenderApplication(UINT width, UINT height);
-    virtual ~RenderApplication();
 
     void OnInit(SDL_Window* window);
     void OnUpdate();
@@ -72,12 +71,22 @@ private:
     static const UINT FrameCount = 2;
     static const UINT SrvHeapSize = 256;
 
+    struct Vertex
+    {
+        float position[3];
+        float color[4];
+    };
+
     // Pipeline object
+    D3D12_VIEWPORT m_viewport;
+    D3D12_RECT m_scissorRect;
     ComPtr<IDXGISwapChain3> m_swapChain;
     ComPtr<ID3D12Device> m_d3dDevice;
     ComPtr<ID3D12Resource> m_rtvResource[FrameCount];
     ComPtr<ID3D12CommandAllocator> m_commandAllocator;
     ComPtr<ID3D12CommandQueue> m_commandQueue;
+    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12PipelineState> m_pipelineState;
 
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvDescHeap;
@@ -85,10 +94,15 @@ private:
     ComPtr<ID3D12GraphicsCommandList> m_commandList;
     UINT m_rtvDescriptorSize;
 
+    // Render app resources
+    ComPtr<ID3D12Resource> m_vertexBuffer;
+    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
+
     // Synchronization
     UINT m_frameIndex;
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
+    //UINT64 m_fenceValue[FrameCount];
     UINT64 m_fenceValue;
 
     // Window
@@ -98,5 +112,6 @@ private:
     void LoadPipeline();
     void LoadAsset(SDL_Window* window);
     void PopulateCommandList();
-    void WaitForPreviousFrame();
+    void MoveToNextFrame();
+    void WaitForGpu();
 };

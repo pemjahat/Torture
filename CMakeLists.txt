@@ -21,7 +21,7 @@ FetchContent_MakeAvailable(SDL2)
 # Imgui
 FetchContent_Declare(
     imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git    
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
 )
 FetchContent_MakeAvailable(imgui)
 
