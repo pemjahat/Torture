@@ -26,7 +26,10 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(imgui)
 
 # Add executable
-add_executable(${PROJECT_NAME} main.cpp)
+add_executable(${PROJECT_NAME} main.cpp
+    Helper.h
+    WindowApplication.h WindowApplication.cpp 
+    RenderApplication.h RenderApplication.cpp)
 
 # Add imgui source file (need to compile source)
 set(IMGUI_SOURCES
