@@ -1,25 +1,29 @@
 // basic.hlsl
 struct VSInput
 {
-    float3 position : POSITION;
-    float4 color : COLOR;
+    float4 position : POSITION;
+    float2 uv : TEXCOORD;
 };
 
 struct PSInput
 {
     float4 position : SV_POSITION;
-    float4 color : COLOR;
+    float2 uv : TEXCOORD;
 };
+
+Texture2D g_texture : register(t0);
+SamplerState g_sampler : register(s0);
 
 PSInput VSMain(VSInput input)
 {
     PSInput output;
-    output.position = float4(input.position, 1.0f);
-    output.color = input.color;
+    output.position = input.position;
+    output.uv = input.uv;
     return output;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return input.color;
+    //return input.color;
+    return g_texture.Sample(g_sampler, input.uv);
 }

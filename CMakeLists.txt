@@ -11,6 +11,14 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 # Include FetchContent module
 include(FetchContent)
 
+# D3DX12
+FetchContent_Declare(
+    DirectXHeaders
+    GIT_REPOSITORY https://github.com/microsoft/DirectX-Headers.git
+    GIT_TAG main
+)
+FetchContent_MakeAvailable(DirectXHeaders)
+
 # Declare SDL2 to be fetched
 FetchContent_Declare(
     SDL2
@@ -77,6 +85,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${sdl2_SOURCE_DIR}/include
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
+    ${directxheaders_SOURCE_DIR}/include/directx
 )
 
 # Link libraries

@@ -7,6 +7,9 @@
 #endif
 
 #include <iostream>
+// DX12
+#include "d3dx12.h"
+
 // imgui
 #include <imgui.h>
 #include <imgui_impl_sdl2.h>
@@ -95,13 +98,13 @@ void RenderApplication::LoadPipeline()
     g_descHeapAllocator.Create(m_d3dDevice, m_srvDescHeap);
 
     // Create frame resources
-    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart());
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart());
     for (UINT i = 0; i < FrameCount; ++i)
     {
         ComPtr<ID3D12Resource> renderTarget;
-        CheckHRESULT(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_rtvResource[i])));
-        m_d3dDevice->CreateRenderTargetView(m_rtvResource[i].Get(), nullptr, rtvHandle);
-        rtvHandle.ptr += m_rtvDescriptorSize;
+        CheckHRESULT(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTarget[i])));
+        m_d3dDevice->CreateRenderTargetView(m_renderTarget[i].Get(), nullptr, rtvHandle);
+        rtvHandle.Offset(1, m_rtvDescriptorSize);
     }
 
     // Command allocator
@@ -133,16 +136,46 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle) { return g_descHeapAllocator.Free(cpu_handle, gpu_handle); };
     ImGui_ImplDX12_Init(&init_info);
 
-    // Create empty root signature
-    D3D12_ROOT_SIGNATURE_DESC signatureDesc;
-    signatureDesc.NumParameters = 0;        // No root parameters
-    signatureDesc.pParameters = nullptr;     // No root parameters
-    signatureDesc.NumStaticSamplers = 0;    // No static samplers
-    signatureDesc.pStaticSamplers = nullptr; // No static samplers
-    signatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    // Descriptor range
+    CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
+    // 1 - number of descriptor 
+    // 0 - base shader register (start with 0)
+    // 0 - register space (for advance scenario)
+    // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
+    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+
+    // Root parameter in root signature
+    // Tell GPU how access SRV via descriptor table
+    // 1 - number of descriptor range in table
+    // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
+    CD3DX12_ROOT_PARAMETER1 rootParameters[1];
+    rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
+
+    // Texture sampler
+    D3D12_STATIC_SAMPLER_DESC sampler = {};
+    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.MipLODBias = 0;
+    sampler.MaxAnisotropy = 0;
+    sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+    sampler.MinLOD = 0.f;
+    sampler.MaxLOD = D3D12_FLOAT32_MAX;
+    sampler.ShaderRegister = 0;
+    sampler.RegisterSpace = 0;
+    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    // Root signature
+    // Define descriptor table for SRV, as well as sampler
+    // INPUT_ASSEMBLER_INPUT_LAYOUT - using input layout for vertex data (vs with input assembler)
+    CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+    rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
     ComPtr<ID3DBlob> signature;
     ComPtr<ID3DBlob> error;
-    CheckHRESULT(D3D12SerializeRootSignature(&signatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
+    CheckHRESULT(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_1, &signature, &error));
     CheckHRESULT(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
 
     // Create pipeline state, compile, load shaders
@@ -159,38 +192,16 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
     };
-
-    D3D12_RASTERIZER_DESC rasterizerDesc = {};
-    rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
-    rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
-    rasterizerDesc.FrontCounterClockwise = FALSE;
-    rasterizerDesc.DepthBias = 0;
-    rasterizerDesc.DepthBiasClamp = 0.0f;
-    rasterizerDesc.SlopeScaledDepthBias = 0.0f;
-    rasterizerDesc.DepthClipEnable = TRUE;
-    rasterizerDesc.MultisampleEnable = FALSE;
-    rasterizerDesc.AntialiasedLineEnable = FALSE;
-    rasterizerDesc.ForcedSampleCount = 0;
-    rasterizerDesc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
-
-    // Manually initialize blend state (replacing CD3DX12_BLEND_DESC)
-    D3D12_BLEND_DESC blendDesc = {};
-    blendDesc.AlphaToCoverageEnable = FALSE;
-    blendDesc.IndependentBlendEnable = FALSE;
-    for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
-        blendDesc.RenderTarget[i].BlendEnable = FALSE;
-        blendDesc.RenderTarget[i].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-    }
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
     psoDesc.pRootSignature = m_rootSignature.Get();
-    psoDesc.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
-    psoDesc.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
-    psoDesc.RasterizerState = rasterizerDesc;
-    psoDesc.BlendState = blendDesc;
+    psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
+    psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
+    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT };
+    psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
     psoDesc.DepthStencilState.DepthEnable = FALSE;
     psoDesc.DepthStencilState.StencilEnable = FALSE;
     psoDesc.SampleMask = UINT_MAX;
@@ -200,16 +211,19 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     psoDesc.SampleDesc.Count = 1;
     CheckHRESULT(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
 
+    // Create command list
+    CheckHRESULT(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
+
     // Create vertex buffer
     Vertex triangleVertices[] =
     {
-        { {  0.0f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } }, // Top (red)More actions
-        { {  0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } }, // Bottom right (green)
-        { { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }  // 
+        //{ {  0.0f,  0.5f, 0.0f }, { 0.5f, 0.0f } }, // Top (red)More actions
+        //{ {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f } }, // Bottom right (green)
+        //{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f } }  // 
 
-        /*{ { 0.0f, 0.25f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-        { { 0.25f, -0.25f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-        { { -0.25f, -0.25f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }*/
+        { { 0.0f, 0.25f, 0.0f }, { 0.5f, 0.0f } },
+        { { 0.25f, -0.25f, 0.0f }, { 1.0f, 1.0f } },
+        { { -0.25f, -0.25f, 0.0f }, { 0.0f, 1.0f } }
     };
     const UINT vertexBufferSize = sizeof(triangleVertices);
 
@@ -218,24 +232,11 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // over. Please read up on Default Heap usage. An upload heap is used here for 
     // code simplicity and because there are very few verts to actually transfer.
     ComPtr<ID3D12Resource> vertexBuffer;
-    D3D12_HEAP_PROPERTIES heapProps = {};
-    heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-    D3D12_RESOURCE_DESC bufferDesc = {};
-    bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    bufferDesc.Width = vertexBufferSize;
-    bufferDesc.Height = 1;
-    bufferDesc.DepthOrArraySize = 1;
-    bufferDesc.MipLevels = 1;
-    bufferDesc.SampleDesc.Count = 1;
-    bufferDesc.SampleDesc.Quality = 0;
-    bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
-    bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
     CheckHRESULT(m_d3dDevice->CreateCommittedResource(
-        &heapProps,
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
         D3D12_HEAP_FLAG_NONE,
-        &bufferDesc,
+        &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
         D3D12_RESOURCE_STATE_GENERIC_READ,
         nullptr,
         IID_PPV_ARGS(&m_vertexBuffer)));
@@ -250,10 +251,79 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     m_vertexBufferView.StrideInBytes = sizeof(Vertex);
     m_vertexBufferView.SizeInBytes = vertexBufferSize;
 
-    // Create command list
-    CheckHRESULT(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
-    CheckHRESULT(m_commandList->Close());
+    // Note: ComPtr's are CPU objects but this resource needs to stay in scope until
+    // the command list that references it has finished executing on the GPU.
+    // We will flush the GPU at the end of this method to ensure the resource is not
+    // prematurely destroyed.
+    ComPtr<ID3D12Resource> textureUploadHeap;
 
+    // Create texture
+    {
+        D3D12_RESOURCE_DESC textureDesc = {};
+        textureDesc.MipLevels = 1;
+        textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        textureDesc.Width = TextureWidth;
+        textureDesc.Height = TextureHeight;
+        textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        textureDesc.DepthOrArraySize = 1;
+        textureDesc.SampleDesc.Count = 1;
+        textureDesc.SampleDesc.Quality = 0;
+        textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+
+        CheckHRESULT(m_d3dDevice->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &textureDesc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&m_texture)));
+
+        const UINT64 uploadBufferSize = GetRequiredIntermediateSize(m_texture.Get(), 0, 1);
+
+        // Create GPU Upload Buffer
+        CheckHRESULT(m_d3dDevice->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&textureUploadHeap)));
+
+        // Copy data to intermediate upload heap and schedule a copy
+        // from upload heap to texture2D
+        std::vector<UINT8> texture = GenerateTextureData();
+
+        D3D12_SUBRESOURCE_DATA textureData = {};
+        textureData.pData = &texture[0];
+        textureData.RowPitch = TextureWidth * TexturePixelSize;
+        textureData.SlicePitch = textureData.RowPitch * TextureHeight;
+
+        UpdateSubresources(m_commandList.Get(), m_texture.Get(), textureUploadHeap.Get(), 0, 0, 1, &textureData);
+
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = m_texture.Get();
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        m_commandList->ResourceBarrier(1, &barrier);
+
+        // Srv for texture
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format = textureDesc.Format;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+        g_descHeapAllocator.Alloc(&m_srvTextureCpuHandle, &m_srvTextureGpuHandle);
+        //m_d3dDevice->CreateShaderResourceView(m_texture.Get(), &srvDesc, m_srvDescHeap->GetCPUDescriptorHandleForHeapStart());
+        m_d3dDevice->CreateShaderResourceView(m_texture.Get(), &srvDesc, m_srvTextureCpuHandle);
+    }
+
+    // Clsoe command list and execute to begin initial GPU setup
+    CheckHRESULT(m_commandList->Close());
+    ID3D12CommandList* ppCommandList[] = { m_commandList.Get() };
+    m_commandQueue->ExecuteCommandLists(_countof(ppCommandList), ppCommandList);
+    
     // Create synchronization object
     CheckHRESULT(m_d3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
     m_fenceValue = 1;
@@ -267,7 +337,43 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // Wait for the command list to execute; we are reusing the same command 
     // list in our main loop but for now, we just want to wait for setup to 
     // complete before continuing.
-    WaitForGpu();
+    MoveToNextFrame();
+}
+
+std::vector<UINT8> RenderApplication::GenerateTextureData()
+{
+    const UINT rowPitch = TextureWidth * TexturePixelSize;
+    const UINT cellPitch = rowPitch >> 3;       // width of cell in checkboard
+    const UINT cellHeight = TextureWidth >> 3;  //height of cell in checkboard
+    const UINT textureSize = rowPitch * TextureHeight;
+
+    std::vector<UINT8> data(textureSize);
+    UINT8* pData = &data[0];
+
+    for (UINT idx = 0; idx < textureSize; idx += TexturePixelSize)
+    {
+        UINT x = idx % rowPitch;
+        UINT y = idx / rowPitch;
+        UINT i = x / cellPitch;
+        UINT j = y / cellHeight;
+
+        if (i % 2 == j % 2)
+        {
+            pData[idx] = 0x00;
+            pData[idx + 1] = 0x00;
+            pData[idx + 2] = 0x00;
+            pData[idx + 3] = 0xff;
+        }
+        else
+        {
+            pData[idx] = 0xff;
+            pData[idx + 1] = 0xff;
+            pData[idx + 2] = 0xff;
+            pData[idx + 3] = 0xff;
+        }
+    }
+
+    return data;
 }
 
 void RenderApplication::OnUpdate()
@@ -285,15 +391,13 @@ void RenderApplication::OnRender()
 
     CheckHRESULT(m_swapChain->Present(0, 0));
 
-    //WaitForPreviousFrame();
     MoveToNextFrame();
 }
 
 void RenderApplication::OnDestroy()
 {
     // Ensure GPU no longer reference resource before cleanup
-    //WaitForPreviousFrame();
-    WaitForGpu();
+    MoveToNextFrame();
 
     CloseHandle(m_fenceEvent);
 
@@ -349,31 +453,40 @@ void RenderApplication::PopulateCommandList()
 
     CheckHRESULT(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
 
+    m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+
+    // Bind srv descriptor heaps contain texture srv
+    ID3D12DescriptorHeap* ppDescHeaps[] = { m_srvDescHeap.Get() };
+    m_commandList->SetDescriptorHeaps(1, ppDescHeaps);
+
+    // For now :
+    // App + IMGUI share the same descriptor heap
+    // App reserve on static slot of heap, while UI build slot of heap dynamically
+    // is fine because UI using different root descriptor table than App descriptor table
+    // They only share descriptor heap
+    m_commandList->SetGraphicsRootDescriptorTable(0, m_srvTextureGpuHandle);
+    m_commandList->RSSetViewports(1, &m_viewport);
+    m_commandList->RSSetScissorRects(1, &m_scissorRect);
+
     // Transition back buffer to RENDER_TARGET
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = m_rtvResource[m_frameIndex].Get();
+    barrier.Transition.pResource = m_renderTarget[m_frameIndex].Get();
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     m_commandList->ResourceBarrier(1, &barrier);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart());
-    rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;    
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+    m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
 
     //const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
     const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
     m_commandList->ClearRenderTargetView(rtvHandle, clear_color_with_alpha, 0, nullptr);
-    m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
-    m_commandList->RSSetViewports(1, &m_viewport);
-    m_commandList->RSSetScissorRects(1, &m_scissorRect);
-    m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
     m_commandList->DrawInstanced(3, 1, 0, 0);
-
-    ID3D12DescriptorHeap* ppDescHeaps[] = { m_srvDescHeap.Get() };
-    m_commandList->SetDescriptorHeaps(1, ppDescHeaps);
+    
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), m_commandList.Get());
 
     // Transition back to PRESENT
@@ -402,15 +515,17 @@ void RenderApplication::WaitForGpu()
 void RenderApplication::MoveToNextFrame()
 {
     // Schedule signal command in queue (Increment fence value for next frame)
-    CheckHRESULT(m_commandQueue->Signal(m_fence.Get(), m_fenceValue++));
+    const UINT64 fence = m_fenceValue;
+    CheckHRESULT(m_commandQueue->Signal(m_fence.Get(), fence));
+    m_fenceValue++;
+
+    // If next frame is not ready to be renderer, wait until ready
+    if (m_fence->GetCompletedValue() < fence)
+    {
+        CheckHRESULT(m_fence->SetEventOnCompletion(fence, m_fenceEvent));
+        WaitForSingleObject(m_fenceEvent, INFINITE);
+    }
 
     // Update frame index
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
-
-    // If next frame is not ready to be renderer, wait until ready
-    if (m_fence->GetCompletedValue() < m_fenceValue)
-    {
-        CheckHRESULT(m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent));
-        WaitForSingleObject(m_fenceEvent, INFINITE);
-    }
 }
