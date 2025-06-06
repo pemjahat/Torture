@@ -24,6 +24,8 @@ static DescriptorHeapAllocator  g_descHeapAllocator;
 RenderApplication::RenderApplication(UINT Width, UINT Height) :
     m_width(Width),
     m_height(Height),
+    m_cbvDataBegin(nullptr),
+    m_constantBufferData{},
     m_frameIndex(0),
     m_fenceValue{}
 {
@@ -122,34 +124,28 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // Setup dear imgui
     ImGui::StyleColorsDark();
 
-    // ImGui Renderer backend
-    ImGui_ImplDX12_InitInfo init_info = {};
-    init_info.Device = m_d3dDevice.Get();
-    init_info.CommandQueue = m_commandQueue.Get();
-    init_info.NumFramesInFlight = FrameCount;
-    init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-    init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    // Allocating SRV descriptors (for textures) is up to the application, so we provide callbacks.
-    // (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
-    init_info.SrvDescriptorHeap = m_srvDescHeap.Get();
-    init_info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_handle) { return g_descHeapAllocator.Alloc(out_cpu_handle, out_gpu_handle); };
-    init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle) { return g_descHeapAllocator.Free(cpu_handle, gpu_handle); };
-    ImGui_ImplDX12_Init(&init_info);
+    
 
     // Descriptor range
-    CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
+    CD3DX12_DESCRIPTOR_RANGE1 ranges[2];
     // 1 - number of descriptor 
     // 0 - base shader register (start with 0)
     // 0 - register space (for advance scenario)
     // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
     ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+    ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);    // Dynamic update
 
     // Root parameter in root signature
     // Tell GPU how access SRV via descriptor table
     // 1 - number of descriptor range in table
     // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
+
+    // Shared destriptor table between srv + cbv, and visibility all
+    //CD3DX12_ROOT_PARAMETER1 rootParameters[2];
+    //rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
+    //rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);    // for vs/ps
     CD3DX12_ROOT_PARAMETER1 rootParameters[1];
-    rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParameters[0].InitAsDescriptorTable(2, ranges, D3D12_SHADER_VISIBILITY_ALL);    
 
     // Texture sampler
     D3D12_STATIC_SAMPLER_DESC sampler = {};
@@ -170,8 +166,14 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // Root signature
     // Define descriptor table for SRV, as well as sampler
     // INPUT_ASSEMBLER_INPUT_LAYOUT - using input layout for vertex data (vs with input assembler)
+    D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+        D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+        D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+        D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
+
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
-    rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+    rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, rootSignatureFlags);
 
     ComPtr<ID3DBlob> signature;
     ComPtr<ID3DBlob> error;
@@ -319,6 +321,47 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         m_d3dDevice->CreateShaderResourceView(m_texture.Get(), &srvDesc, m_srvTextureCpuHandle);
     }
 
+    // Create constant buffer
+    {
+        const UINT constantBufferSize = sizeof(SceneConstantBuffer);
+
+        CheckHRESULT(m_d3dDevice->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_constantBuffer)));
+
+        // constant buffer view
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+        cbvDesc.BufferLocation = m_constantBuffer->GetGPUVirtualAddress();
+        cbvDesc.SizeInBytes = constantBufferSize;
+        g_descHeapAllocator.Alloc(&m_cbvCpuDescHandle, &m_cbvGpuDescHandle);
+        m_d3dDevice->CreateConstantBufferView(&cbvDesc, m_cbvCpuDescHandle);
+
+        // Map and initialize constant buffer
+        CD3DX12_RANGE readRange(0, 0);
+        CheckHRESULT(m_constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_cbvDataBegin)));
+        memcpy(m_cbvDataBegin, &m_constantBufferData, sizeof(m_constantBufferData));
+        m_constantBuffer->Unmap(0, nullptr);
+    }
+
+    // ImGui
+    // ImGui Renderer backend
+    ImGui_ImplDX12_InitInfo init_info = {};
+    init_info.Device = m_d3dDevice.Get();
+    init_info.CommandQueue = m_commandQueue.Get();
+    init_info.NumFramesInFlight = FrameCount;
+    init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+    init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    // Allocating SRV descriptors (for textures) is up to the application, so we provide callbacks.
+    // (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
+    init_info.SrvDescriptorHeap = m_srvDescHeap.Get();
+    init_info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_handle) { return g_descHeapAllocator.Alloc(out_cpu_handle, out_gpu_handle); };
+    init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle) { return g_descHeapAllocator.Free(cpu_handle, gpu_handle); };
+    ImGui_ImplDX12_Init(&init_info);
+    
     // Clsoe command list and execute to begin initial GPU setup
     CheckHRESULT(m_commandList->Close());
     ID3D12CommandList* ppCommandList[] = { m_commandList.Get() };
@@ -378,7 +421,15 @@ std::vector<UINT8> RenderApplication::GenerateTextureData()
 
 void RenderApplication::OnUpdate()
 {
+    const float translationSpeed = 0.005f;
+    const float offsetBounds = 1.25f;
 
+    m_constantBufferData.offset[0] += translationSpeed;
+    if (m_constantBufferData.offset[0] > offsetBounds)
+    {
+        m_constantBufferData.offset[0] -= offsetBounds;
+    }
+    memcpy(m_cbvDataBegin, &m_constantBufferData, sizeof(m_constantBufferData));
 }
 
 void RenderApplication::OnRender()
@@ -464,7 +515,10 @@ void RenderApplication::PopulateCommandList()
     // App reserve on static slot of heap, while UI build slot of heap dynamically
     // is fine because UI using different root descriptor table than App descriptor table
     // They only share descriptor heap
-    m_commandList->SetGraphicsRootDescriptorTable(0, m_srvTextureGpuHandle);
+    /*m_commandList->SetGraphicsRootDescriptorTable(0, m_srvTextureGpuHandle);
+    m_commandList->SetGraphicsRootDescriptorTable(1, m_cbvGpuDescHandle);*/
+    // Shared descriptor table, pass the first index
+    m_commandList->SetGraphicsRootDescriptorTable(0, m_srvDescHeap->GetGPUDescriptorHandleForHeapStart());
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 

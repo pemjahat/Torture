@@ -1,4 +1,10 @@
 // basic.hlsl
+cbuffer SceneConstantBuffer : register(b0)
+{
+    float4 offset;
+    float4 padding[15];
+};
+
 struct VSInput
 {
     float4 position : POSITION;
@@ -17,7 +23,7 @@ SamplerState g_sampler : register(s0);
 PSInput VSMain(VSInput input)
 {
     PSInput output;
-    output.position = input.position;
+    output.position = input.position + offset;
     output.uv = input.uv;
     return output;
 }

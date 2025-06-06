@@ -80,6 +80,12 @@ private:
         float uv[2];
     };
 
+    struct SceneConstantBuffer
+    {
+        float offset[4];
+        float padding[60];  // padd to 256byte aligned
+    };
+
     // Pipeline object
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;
@@ -95,6 +101,8 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_srvDescHeap;
     D3D12_CPU_DESCRIPTOR_HANDLE m_srvTextureCpuHandle;
     D3D12_GPU_DESCRIPTOR_HANDLE m_srvTextureGpuHandle;
+    D3D12_CPU_DESCRIPTOR_HANDLE m_cbvCpuDescHandle;
+    D3D12_GPU_DESCRIPTOR_HANDLE m_cbvGpuDescHandle;
 
     ComPtr<ID3D12GraphicsCommandList> m_commandList;
     UINT m_rtvDescriptorSize;
@@ -102,7 +110,10 @@ private:
     // Render app resources
     ComPtr<ID3D12Resource> m_vertexBuffer;
     ComPtr<ID3D12Resource> m_texture;
-    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;    
+    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
+    ComPtr<ID3D12Resource> m_constantBuffer;
+    SceneConstantBuffer m_constantBufferData;
+    UINT8* m_cbvDataBegin;
 
     // Synchronization
     UINT m_frameIndex;
