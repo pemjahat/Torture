@@ -5,6 +5,9 @@ project(SDL_Window)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# multithreading compilation
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+
 # Enable solution folders for Visual Studio
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
