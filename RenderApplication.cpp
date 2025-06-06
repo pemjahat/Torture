@@ -57,6 +57,27 @@ void RenderApplication::LoadPipeline()
     
     CheckHRESULT(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_d3dDevice)));
 
+    // break on warnings/errors
+#ifdef DX12_ENABLE_DEBUG_LAYER
+    {
+        ComPtr<ID3D12InfoQueue1> debugInfoQueue;
+        CheckHRESULT(m_d3dDevice->QueryInterface(__uuidof(ID3D12InfoQueue1), (LPVOID *)&debugInfoQueue));
+
+        // NOTE: add whatever d3d12 filters here when needed
+        D3D12_INFO_QUEUE_FILTER newFilter{};
+
+        // Turn off info msgs as these get really spewy
+        D3D12_MESSAGE_SEVERITY denySeverity = D3D12_MESSAGE_SEVERITY_INFO;
+        newFilter.DenyList.NumSeverities = 1;
+        newFilter.DenyList.pSeverityList = &denySeverity;
+
+        CheckHRESULT(debugInfoQueue->PushStorageFilter(&newFilter));
+        CheckHRESULT(debugInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true));
+        CheckHRESULT(debugInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true));
+        CheckHRESULT(debugInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true));
+    }
+#endif // DX12_ENABLE_DEBUG_LAYER
+
     D3D12_COMMAND_QUEUE_DESC queueDesc = {};
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
