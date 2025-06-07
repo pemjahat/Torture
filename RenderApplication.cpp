@@ -145,8 +145,6 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // Setup dear imgui
     ImGui::StyleColorsDark();
 
-    
-
     // Descriptor range
     CD3DX12_DESCRIPTOR_RANGE1 ranges[2];
     // 1 - number of descriptor 
@@ -162,11 +160,13 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
 
     // Shared destriptor table between srv + cbv, and visibility all
-    //CD3DX12_ROOT_PARAMETER1 rootParameters[2];
-    //rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
-    //rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);    // for vs/ps
-    CD3DX12_ROOT_PARAMETER1 rootParameters[1];
-    rootParameters[0].InitAsDescriptorTable(2, ranges, D3D12_SHADER_VISIBILITY_ALL);    
+    CD3DX12_ROOT_PARAMETER1 rootParameters[2];
+    rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);    // for vs/ps
+
+    // Remove the shared, since root descriptor table using visiblity = ALL, so Texture SRV need extra flag
+    /*CD3DX12_ROOT_PARAMETER1 rootParameters[1];
+    rootParameters[0].InitAsDescriptorTable(2, ranges, D3D12_SHADER_VISIBILITY_ALL);    */
 
     // Texture sampler
     D3D12_STATIC_SAMPLER_DESC sampler = {};
@@ -328,6 +328,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         barrier.Transition.pResource = m_texture.Get();
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        // Need this if descriptor table is shared = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         m_commandList->ResourceBarrier(1, &barrier);
 
@@ -536,10 +537,13 @@ void RenderApplication::PopulateCommandList()
     // App reserve on static slot of heap, while UI build slot of heap dynamically
     // is fine because UI using different root descriptor table than App descriptor table
     // They only share descriptor heap
-    /*m_commandList->SetGraphicsRootDescriptorTable(0, m_srvTextureGpuHandle);
-    m_commandList->SetGraphicsRootDescriptorTable(1, m_cbvGpuDescHandle);*/
+
     // Shared descriptor table, pass the first index
-    m_commandList->SetGraphicsRootDescriptorTable(0, m_srvDescHeap->GetGPUDescriptorHandleForHeapStart());
+    //m_commandList->SetGraphicsRootDescriptorTable(0, m_srvDescHeap->GetGPUDescriptorHandleForHeapStart());
+    // Remove the shared, since root descriptor table using visiblity = ALL, so Texture SRV need extra flag
+    m_commandList->SetGraphicsRootDescriptorTable(0, m_srvTextureGpuHandle);
+    m_commandList->SetGraphicsRootDescriptorTable(1, m_cbvGpuDescHandle);
+    
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
