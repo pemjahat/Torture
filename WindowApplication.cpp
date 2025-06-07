@@ -84,6 +84,13 @@ int WindowApplication::Run(RenderApplication* pApp)
                 if (event.key.keysym.sym == SDLK_ESCAPE) {
                     done = true;
                 }
+                else
+                {
+                    pApp->OnKeyDown(event.key);
+                }
+                break;
+            case SDL_KEYUP:
+                pApp->OnKeyUp(event.key);
                 break;
             }
         }

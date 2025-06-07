@@ -2,7 +2,10 @@
 cbuffer SceneConstantBuffer : register(b0)
 {
     float4 offset;
-    float4 padding[15];
+    float4x4 World;
+    float4x4 WorldView;
+    float4x4 WorldViewProj;
+    float4 padding[3];
 };
 
 struct VSInput
@@ -23,7 +26,9 @@ SamplerState g_sampler : register(s0);
 PSInput VSMain(VSInput input)
 {
     PSInput output;
-    output.position = input.position + offset;
+    
+    output.position = mul(float4(input.position.xyz, 1.f), WorldViewProj);
+    //output.position = input.position;
     output.uv = input.uv;
     return output;
 }

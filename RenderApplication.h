@@ -7,6 +7,8 @@
 #include <string>
 #include <SDL.h>
 #include <vector>
+#include "StepTimer.h"
+#include "SimpleCamera.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -64,6 +66,9 @@ public:
     void OnRender();
     void OnDestroy();
 
+    void OnKeyUp(SDL_KeyboardEvent& key);
+    void OnKeyDown(SDL_KeyboardEvent& key);
+
     UINT GetWidth() { return m_width; }
     UINT GetHeight() { return m_height; }
 
@@ -82,8 +87,10 @@ private:
 
     struct SceneConstantBuffer
     {
-        float offset[4];
-        float padding[60];  // padd to 256byte aligned
+        XMFLOAT4X4 World;
+        XMFLOAT4X4 WorldView;
+        XMFLOAT4X4 WorldViewProj;
+        float padding[16];  // padd to 256byte aligned
     };
 
     // Pipeline object
@@ -119,12 +126,16 @@ private:
     UINT m_frameIndex;
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
-    //UINT64 m_fenceValue[FrameCount];
     UINT64 m_fenceValue;
 
     // Window
     UINT m_width;
     UINT m_height;
+    float m_aspectRatio;
+
+    // Camera
+    StepTimer m_timer;
+    SimpleCamera m_camera;
 
     void LoadPipeline();
     void LoadAsset(SDL_Window* window);

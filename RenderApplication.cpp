@@ -29,12 +29,17 @@ RenderApplication::RenderApplication(UINT Width, UINT Height) :
     m_frameIndex(0),
     m_fenceValue{}
 {
+    m_aspectRatio = static_cast<float>(m_width) / static_cast<float>(m_height);
+
     m_viewport = { 0.f, 0.f, (float)m_width, (float)m_height };
     m_scissorRect = { 0, 0, (LONG)m_width, (LONG)m_height };
 }
 
 void RenderApplication::OnInit(SDL_Window* window)
 {
+    m_camera.Init({ 0, 0, 10 });
+    m_camera.SetMoveSpeed(15.f);
+
     LoadPipeline();
     LoadAsset(window);
 }
@@ -365,8 +370,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         // Map and initialize constant buffer
         CD3DX12_RANGE readRange(0, 0);
         CheckHRESULT(m_constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_cbvDataBegin)));
-        memcpy(m_cbvDataBegin, &m_constantBufferData, sizeof(m_constantBufferData));
-        m_constantBuffer->Unmap(0, nullptr);
+        memcpy(m_cbvDataBegin, &m_constantBufferData, sizeof(m_constantBufferData));        
     }
 
     // ImGui
@@ -443,14 +447,21 @@ std::vector<UINT8> RenderApplication::GenerateTextureData()
 
 void RenderApplication::OnUpdate()
 {
-    const float translationSpeed = 0.005f;
-    const float offsetBounds = 1.25f;
+    m_timer.Tick();
 
-    m_constantBufferData.offset[0] += translationSpeed;
-    if (m_constantBufferData.offset[0] > offsetBounds)
-    {
-        m_constantBufferData.offset[0] -= offsetBounds;
-    }
+    m_camera.Update(static_cast<float>(m_timer.GetElapsedSeconds()));
+
+    XMMATRIX world = XMMATRIX(g_XMIdentityR0, g_XMIdentityR1, g_XMIdentityR2, g_XMIdentityR3);
+    XMMATRIX view = m_camera.GetViewMatrix();
+    XMMATRIX proj = m_camera.GetProjectionMatrix(XM_PI / 3, m_aspectRatio);
+
+    XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
+    XMStoreFloat4x4(&m_constantBufferData.WorldView, XMMatrixTranspose(world * view));
+    XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));
+
+    // Constant buffer created with upload heap
+    // Need to map buffer once during creation, udpate directly in mapped memory
+    // No need to unmap unless we're done with buffer
     memcpy(m_cbvDataBegin, &m_constantBufferData, sizeof(m_constantBufferData));
 }
 
@@ -477,6 +488,16 @@ void RenderApplication::OnDestroy()
     // ImGui
     g_descHeapAllocator.Destroy();
     ImGui_ImplDX12_Shutdown();
+}
+
+void RenderApplication::OnKeyDown(SDL_KeyboardEvent& key)
+{
+    m_camera.OnKeyDown(key);
+}
+
+void RenderApplication::OnKeyUp(SDL_KeyboardEvent& key)
+{
+    m_camera.OnKeyUp(key);
 }
 
 void RenderApplication::PopulateCommandList()

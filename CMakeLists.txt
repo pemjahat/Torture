@@ -11,6 +11,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
 # Enable solution folders for Visual Studio
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+# Set CMP0135 to NEW to use extraction timestamps
+# Ensure rebuild occur when archive content change
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
+
 # Include FetchContent module
 include(FetchContent)
 
@@ -36,11 +42,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
+# Automatically collect all .cpp and .h files
+file(GLOB SOURCES
+    "${CMAKE_SOURCE_DIR}/*.cpp"
+    "${CMAKE_SOURCE_DIR}/*.h"
+)
+
 # Add executable
-add_executable(${PROJECT_NAME} main.cpp
-    Helper.h
-    WindowApplication.h WindowApplication.cpp 
-    RenderApplication.h RenderApplication.cpp)
+add_executable(${PROJECT_NAME} ${SOURCES})
 
 # Add imgui source file (need to compile source)
 set(IMGUI_SOURCES
