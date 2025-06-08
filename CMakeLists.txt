@@ -42,6 +42,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
+# TinyGltf
+FetchContent_Declare(
+    tinygltf
+    GIT_REPOSITORY https://github.com/syoyo/tinygltf.git    
+    GIT_TAG release
+)
+FetchContent_MakeAvailable(tinygltf)
+
 # Automatically collect all .cpp and .h files
 file(GLOB SOURCES
     "${CMAKE_SOURCE_DIR}/*.cpp"
@@ -98,6 +106,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
     ${directxheaders_SOURCE_DIR}/include/directx
+    ${tinygltf_SOURCE_DIR}
 )
 
 # Link libraries
@@ -115,6 +124,13 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${sdl2_SOURCE_DIR}/lib/x64/SDL2.dll"
     $<TARGET_FILE_DIR:${PROJECT_NAME}>
+)
+
+# Define TinyGltf implementation flags
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    TINYGLTF_IMPLEMENTATION
+    STB_IMAGE_IMPLEMENTATION
+    STB_IMAGE_WRITE_IMPLEMENTATION
 )
 
 # Windows-specific linking
