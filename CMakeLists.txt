@@ -72,33 +72,38 @@ set(IMGUI_SOURCES
 target_sources(${PROJECT_NAME} PRIVATE ${IMGUI_SOURCES})
 
 # Add hlsl into project(no compile)
-set(SHADER_FILES basic.hlsl)
+file(GLOB SHADER_FILES "${CMAKE_SOURCE_DIR}/*.hlsl")
 source_group("Shader Files" FILES ${SHADER_FILES})
 target_sources(${PROJECT_NAME} PRIVATE ${SHADER_FILES})
 
-set_source_files_properties(basic.hlsl PROPERTIES
-    VS_TOOL_OVERRIDE "None" # prevent vs from compile it
-)
-
 # Copy hlsl to output directory
 foreach(SHADER ${SHADER_FILES})
-    # Add a custom command to copy the shader file to the output directory
+    # prevent vs from compile it
+    set_source_files_properties(${SHADER} PROPERTIES VS_TOOL_OVERRIDE "None")
+    message(STATUS "Found shader: ${SHADER}")
+    # get file name for use in output directory
+    get_filename_component(SHADER_NAME ${SHADER} NAME)
+    # configure file to be copied to output directory
+    #configure_file(${SHADER} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${SHADER_NAME} COPYONLY)
     add_custom_command(
         TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
-            ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${SHADER}        
+            ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_NAME}
+            ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${SHADER_NAME}
     )
 
-    # Copy to project root
     add_custom_command(
         TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
-            ${CMAKE_CURRENT_BINARY_DIR}/${SHADER}
+            ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_NAME}
+            ${CMAKE_CURRENT_BINARY_DIR}/${SHADER_NAME}
     )
 endforeach()
 
+# Copy asset to
+#file(GLOB GLTF_ASSETS "${CMAKE_SOURCE_DIR}/*.gltf")
+
+# Copy assets 
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE

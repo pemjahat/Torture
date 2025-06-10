@@ -65,8 +65,8 @@ void RenderApplication::LoadPipeline()
     // break on warnings/errors
 #ifdef DX12_ENABLE_DEBUG_LAYER
     {
-        ComPtr<ID3D12InfoQueue1> debugInfoQueue;
-        CheckHRESULT(m_d3dDevice->QueryInterface(__uuidof(ID3D12InfoQueue1), (LPVOID *)&debugInfoQueue));
+        ComPtr<ID3D12InfoQueue> debugInfoQueue;
+        CheckHRESULT(m_d3dDevice->QueryInterface(__uuidof(ID3D12InfoQueue), (LPVOID *)&debugInfoQueue));
 
         // NOTE: add whatever d3d12 filters here when needed
         D3D12_INFO_QUEUE_FILTER newFilter{};
@@ -157,7 +157,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // 0 - register space (for advance scenario)
     // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
     ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-    ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);    // Dynamic update
+    ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);    // Dynamic update
 
     // Root parameter in root signature
     // Tell GPU how access SRV via descriptor table
@@ -214,13 +214,14 @@ void RenderApplication::LoadAsset(SDL_Window* window)
 #else
     UINT compileFlags = 0;
 #endif
-    CheckHRESULT(D3DCompileFromFile(L"basic.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
-    CheckHRESULT(D3DCompileFromFile(L"basic.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
+    CheckHRESULT(D3DCompileFromFile(L"basic_color.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
+    CheckHRESULT(D3DCompileFromFile(L"basic_color.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
     
     D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
     };
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
@@ -249,9 +250,9 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         //{ {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f } }, // Bottom right (green)
         //{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f } }  // 
 
-        { { 0.0f, 0.25f, 0.0f }, { 0.5f, 0.0f } },
-        { { 0.25f, -0.25f, 0.0f }, { 1.0f, 1.0f } },
-        { { -0.25f, -0.25f, 0.0f }, { 0.0f, 1.0f } }
+        { { 0.0f, 0.25f, 0.0f }, {0.f, 0.f, 0.f, 0.f}, { 0.5f, 0.0f } },
+        { { 0.25f, -0.25f, 0.0f }, {0.f, 0.f, 0.f, 0.f}, { 1.0f, 1.0f } },
+        { { -0.25f, -0.25f, 0.0f }, {0.f, 0.f, 0.f, 0.f},  { 0.0f, 1.0f } }
     };
     const UINT vertexBufferSize = sizeof(triangleVertices);
 

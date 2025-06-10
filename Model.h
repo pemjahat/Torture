@@ -24,6 +24,10 @@ public:
 		ID3D12CommandQueue* cmdQueue, 
 		ID3D12CommandAllocator* cmdAlloc, 
 		ID3D12GraphicsCommandList* cmdList);
+	HRESULT RenderGpu(
+		ID3D12CommandQueue* cmdQueue,
+		ID3D12CommandAllocator* cmdAlloc,
+		ID3D12GraphicsCommandList* cmdList);
 
 private:
 	// Vertex and index data

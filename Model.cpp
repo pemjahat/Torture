@@ -1,4 +1,6 @@
 #include "Model.h"
+
+#include <d3d12.h>
 #include "d3dx12.h"
 #include <tiny_gltf.h>
 #include "Helper.h"
@@ -100,67 +102,62 @@ HRESULT Model::UploadGpuResources(
         return E_FAIL;
     }
 
-    //// Create vertex buffer (upload heap)
-    //UINT vertexBufferSize = static_cast<UINT>(m_vertices.size() * sizeof(Vertex));
-    //D3D12_HEAP_PROPERTIES heapProps = { D3D12_HEAP_TYPE_UPLOAD };
-    //D3D12_RESOURCE_DESC resourceDesc = {};
-    //resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    //resourceDesc.Width = vertexBufferSize;
-    //resourceDesc.Height = 1;
-    //resourceDesc.DepthOrArraySize = 1;
-    //resourceDesc.MipLevels = 1;
-    //resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
-    //resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    // Create vertex buffer (upload heap)
+    UINT vertexBufferSize = static_cast<UINT>(m_vertices.size() * sizeof(VertexModel));
 
-    //HRESULT hr = device->CreateCommittedResource(
-    //    &heapProps,
-    //    D3D12_HEAP_FLAG_NONE,
-    //    &resourceDesc,
-    //    D3D12_RESOURCE_STATE_GENERIC_READ,
-    //    nullptr,
-    //    IID_PPV_ARGS(&m_vertexBuffer));
-    //if (FAILED(hr)) { throw std::runtime_error("Failed to create vertex buffer"); }
+    CheckHRESULT(device->CreateCommittedResource(
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+        D3D12_HEAP_FLAG_NONE,
+        &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&m_vertexBuffer)));
 
-    //// Map and copy vertex data
-    //hr = m_vertexBuffer->Map(0, nullptr, &m_mappedVertexBufferData);
-    //if (FAILED(hr)) { throw std::runtime_error("Failed to map vertex buffer"); }
-    //memcpy(m_mappedVertexBufferData, m_vertices.data(), vertexBufferSize);
+    // Map and copy vertex data
+    CheckHRESULT(m_vertexBuffer->Map(0, nullptr, &m_mappedVertexBufferData));
+    memcpy(m_mappedVertexBufferData, m_vertices.data(), vertexBufferSize);
 
-    //// Create vertex buffer view
-    //m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-    //m_vertexBufferView.SizeInBytes = vertexBufferSize;
-    //m_vertexBufferView.StrideInBytes = sizeof(Vertex);
+    // Create vertex buffer view
+    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
+    m_vertexBufferView.SizeInBytes = vertexBufferSize;
+    m_vertexBufferView.StrideInBytes = sizeof(VertexModel);
 
-    //// Create index buffer (upload heap)
-    //UINT indexBufferSize = static_cast<UINT>(m_indices.size() * sizeof(uint32_t));
-    //resourceDesc.Width = indexBufferSize;
+    // Create index buffer (upload heap)
+    UINT indexBufferSize = static_cast<UINT>(m_indices.size() * sizeof(uint32_t));
 
-    //hr = device->CreateCommittedResource(
-    //    &heapProps,
-    //    D3D12_HEAP_FLAG_NONE,
-    //    &resourceDesc,
-    //    D3D12_RESOURCE_STATE_GENERIC_READ,
-    //    nullptr,
-    //    IID_PPV_ARGS(&m_indexBuffer));
-    //if (FAILED(hr)) { throw std::runtime_error("Failed to create index buffer"); }
+    CheckHRESULT(device->CreateCommittedResource(
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+        D3D12_HEAP_FLAG_NONE,
+        &CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&m_indexBuffer)));
 
-    //// Map and copy index data
-    //hr = m_indexBuffer->Map(0, nullptr, &m_mappedIndexBufferData);
-    //if (FAILED(hr)) { throw std::runtime_error("Failed to map index buffer"); }
-    //memcpy(m_mappedIndexBufferData, m_indices.data(), indexBufferSize);
+    // Map and copy index data
+    CheckHRESULT(m_indexBuffer->Map(0, nullptr, &m_mappedIndexBufferData));
+    memcpy(m_mappedIndexBufferData, m_indices.data(), indexBufferSize);
 
-    //// Create index buffer view
-    //m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
-    //m_indexBufferView.SizeInBytes = indexBufferSize;
-    //m_indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+    // Create index buffer view
+    m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
+    m_indexBufferView.SizeInBytes = indexBufferSize;
+    m_indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+   
+    
+}
 
+HRESULT Model::RenderGpu(
+    ID3D12CommandQueue* cmdQueue,
+    ID3D12CommandAllocator* cmdAlloc,
+    ID3D12GraphicsCommandList* cmdList)
+{
+    if (m_vertices.empty() || m_indices.empty())
+    {
+        return E_FAIL;
+    }
 
-    // RENDER PART
     // Set vertex and index buffers
-    //g_commandList->IASetVertexBuffers(0, 1, &g_model.GetVertexBufferView());
-    //g_commandList->IASetIndexBuffer(&g_model.GetIndexBufferView());
-    //g_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-    //// Draw
-    //g_commandList->DrawIndexedInstanced(g_model.GetIndexCount(), 1, 0, 0, 0);
+    cmdList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+    cmdList->IASetIndexBuffer(&m_indexBufferView);
+    cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    cmdList->DrawIndexedInstanced(m_indices.size(), 1, 0, 0, 0);
 }
