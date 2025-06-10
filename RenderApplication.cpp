@@ -48,18 +48,26 @@ void RenderApplication::LoadPipeline()
 {
     // Enable debug layer (optional, for development)
 #ifdef DX12_ENABLE_DEBUG_LAYER
-    ComPtr<ID3D12Debug> debugController;
-    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
+    ComPtr<ID3D12Debug3> debugController;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
+    {
         debugController->EnableDebugLayer();
+
+        const bool bEnableGPUBasedValidation = false;
+        if (bEnableGPUBasedValidation)
+        {
+            debugController->SetEnableGPUBasedValidation(true);
+        }
     }
-    else {
+    else
+    {
         std::cerr << "Failed to enable D3D12 debug layer" << std::endl;
     }
 #endif
 
     ComPtr<IDXGIFactory4> factory;
     CheckHRESULT(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)));
-    
+
     CheckHRESULT(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_d3dDevice)));
 
     // break on warnings/errors
