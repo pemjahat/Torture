@@ -13,6 +13,19 @@ inline void CheckHRESULT(HRESULT hr = S_OK)
     }
 }
 
+//inline void GetAssetsPath(WCHAR* path, UINT pathSize)
+//{
+//    DWORD size = GetModuleFileName(nullptr, path, pathSize);
+//    if (size != 0)
+//    {
+//        WCHAR* lastSlash = wcsrchr(path, L'\\');
+//        if (lastSlash)
+//        {
+//            *(lastSlash + 1) = L'\0';
+//        }
+//    }
+//}
+
 //void LogError(const char* message, HRESULT hr = S_OK)
 //{
 //    std::string errorMsg = message;

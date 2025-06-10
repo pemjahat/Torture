@@ -138,6 +138,11 @@ private:
     StepTimer m_timer;
     SimpleCamera m_camera;
 
+    // Root assets path.
+    std::wstring m_assetsPath;
+
+    std::wstring GetAssetFullPath(LPCWSTR assetName);
+
     void LoadPipeline();
     void LoadAsset(SDL_Window* window);
     std::vector<UINT8> GenerateTextureData();

@@ -33,6 +33,10 @@ RenderApplication::RenderApplication(UINT Width, UINT Height) :
 
     m_viewport = { 0.f, 0.f, (float)m_width, (float)m_height };
     m_scissorRect = { 0, 0, (LONG)m_width, (LONG)m_height };
+
+    WCHAR assetsPath[512];
+    //GetAssetsPath(assetsPath, _countof(assetsPath));
+    //m_assetsPath = assetsPath;
 }
 
 void RenderApplication::OnInit(SDL_Window* window)
@@ -42,6 +46,28 @@ void RenderApplication::OnInit(SDL_Window* window)
 
     LoadPipeline();
     LoadAsset(window);
+}
+
+// Helper function for resolving the full path of assets.
+std::wstring RenderApplication::GetAssetFullPath(LPCWSTR assetName)
+{
+    // Assume assetPath was retrieved from GetModuleFileName
+    WCHAR assetPath[MAX_PATH];
+    GetModuleFileNameW(NULL, assetPath, MAX_PATH);
+
+    // Find the last backslash to get the directory path
+    std::wstring path(assetPath);
+    size_t lastBackslash = path.find_last_of(L"\\");
+    if (lastBackslash == std::wstring::npos) {
+        // No backslash found, return empty or handle error
+        return std::wstring();
+    }
+
+    // Extract the directory path (including the backslash)
+    std::wstring directory = path.substr(0, lastBackslash + 1);
+
+    // Append the file name to the directory
+    return directory + assetName;
 }
 
 void RenderApplication::LoadPipeline()
@@ -222,8 +248,8 @@ void RenderApplication::LoadAsset(SDL_Window* window)
 #else
     UINT compileFlags = 0;
 #endif
-    CheckHRESULT(D3DCompileFromFile(L"basic_color.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
-    CheckHRESULT(D3DCompileFromFile(L"basic_color.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
+    CheckHRESULT(D3DCompileFromFile(GetAssetFullPath(L"basic_color.hlsl").c_str(), nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
+    CheckHRESULT(D3DCompileFromFile(GetAssetFullPath(L"basic_color.hlsl").c_str(), nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
     
     D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
     {
