@@ -396,6 +396,12 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         memcpy(m_cbvDataBegin, &m_constantBufferData, sizeof(m_constantBufferData));        
     }
 
+    // Model
+    std::wstring gltfPath = GetAssetFullPath("content/Box.gltf");
+        
+    m_model.LoadFromFile(WStringToString(gltfPath));
+    m_model.UploadGpuResources(m_d3dDevice.Get(), m_commandList.Get());
+
     // ImGui
     // ImGui Renderer backend
     ImGui_ImplDX12_InitInfo init_info = {};
@@ -606,10 +612,12 @@ void RenderApplication::PopulateCommandList()
     //const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
     const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
     m_commandList->ClearRenderTargetView(rtvHandle, clear_color_with_alpha, 0, nullptr);
-    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    /*m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
-    m_commandList->DrawInstanced(3, 1, 0, 0);
+    m_commandList->DrawInstanced(3, 1, 0, 0);*/
     
+    m_model.RenderGpu(m_commandList.Get());
+
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), m_commandList.Get());
 
     // Transition back to PRESENT

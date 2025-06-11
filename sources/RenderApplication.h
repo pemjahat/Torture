@@ -8,6 +8,7 @@
 #include <SDL.h>
 #include <vector>
 #include "StepTimer.h"
+#include "Model.h"
 #include "SimpleCamera.h"
 
 using Microsoft::WRL::ComPtr;
@@ -137,6 +138,9 @@ private:
     // Camera
     StepTimer m_timer;
     SimpleCamera m_camera;
+
+    // GLTF
+    Model m_model;
 
     // Root assets path. (helper)
     std::string m_executablePath;

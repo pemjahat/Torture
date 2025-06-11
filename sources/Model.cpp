@@ -31,7 +31,7 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
     std::string err, warn;
 
     // Load .glb file (binary glTF)
-    bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, filePath);
+    bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, filePath);
     if (!warn.empty()) { printf("Warning: %s\n", warn.c_str()); }
     if (!err.empty()) { printf("Error: %s\n", err.c_str()); }
     if (!ret) { return E_FAIL; }
@@ -74,18 +74,29 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
         {
             m_vertices[i].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
         }
+        // Add dummy uv value
+        m_vertices[i].Uv = DirectX::XMFLOAT2(0.f, 0.f);
     }
 
     // Get indices
-    const auto& indexAccessor = model.accessors[primitive.indices];
+    const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
     const auto& indexView = model.bufferViews[indexAccessor.bufferView];
     const auto& indexBuffer = model.buffers[indexView.buffer];
-    const uint32_t* indexData = reinterpret_cast<const uint32_t*>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset]);
 
     m_indices.resize(indexAccessor.count);
-    for (size_t i = 0; i < indexAccessor.count; ++i)
+    if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
     {
-        m_indices[i] = indexData[i];
+        const uint16_t* indexData = reinterpret_cast<const uint16_t*>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset]);
+        for (size_t i = 0; i < indexAccessor.count; ++i){
+            m_indices[i] = static_cast<uint32_t>(indexData[i]);
+        }
+    }
+    else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT)
+    {
+        const uint32_t* indexData = reinterpret_cast<const uint32_t*>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset]);
+        for (size_t i = 0; i < indexAccessor.count; ++i) {
+            m_indices[i] = indexData[i];
+        }
     }
 
 	return S_OK;
@@ -93,8 +104,6 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
 
 HRESULT Model::UploadGpuResources(
 	ID3D12Device* device,
-	ID3D12CommandQueue* cmdQueue,
-	ID3D12CommandAllocator* cmdAlloc,
 	ID3D12GraphicsCommandList* cmdList)
 {
     if (m_vertices.empty() || m_indices.empty())
@@ -141,14 +150,11 @@ HRESULT Model::UploadGpuResources(
     m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
     m_indexBufferView.SizeInBytes = indexBufferSize;
     m_indexBufferView.Format = DXGI_FORMAT_R32_UINT;
-   
-    
+
+    return S_OK;
 }
 
-HRESULT Model::RenderGpu(
-    ID3D12CommandQueue* cmdQueue,
-    ID3D12CommandAllocator* cmdAlloc,
-    ID3D12GraphicsCommandList* cmdList)
+HRESULT Model::RenderGpu(ID3D12GraphicsCommandList* cmdList)
 {
     if (m_vertices.empty() || m_indices.empty())
     {
@@ -160,4 +166,6 @@ HRESULT Model::RenderGpu(
     cmdList->IASetIndexBuffer(&m_indexBufferView);
     cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cmdList->DrawIndexedInstanced(m_indices.size(), 1, 0, 0, 0);
+
+    return S_OK;
 }

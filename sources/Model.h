@@ -10,6 +10,7 @@ struct VertexModel
 {
 	DirectX::XMFLOAT3 Position;
 	DirectX::XMFLOAT4 Color;
+	DirectX::XMFLOAT2 Uv;
 };
 
 class Model
@@ -21,13 +22,8 @@ public:
 	HRESULT LoadFromFile(const std::string& filePath);
 	HRESULT UploadGpuResources(
 		ID3D12Device* device, 
-		ID3D12CommandQueue* cmdQueue, 
-		ID3D12CommandAllocator* cmdAlloc, 
 		ID3D12GraphicsCommandList* cmdList);
-	HRESULT RenderGpu(
-		ID3D12CommandQueue* cmdQueue,
-		ID3D12CommandAllocator* cmdAlloc,
-		ID3D12GraphicsCommandList* cmdList);
+	HRESULT RenderGpu(ID3D12GraphicsCommandList* cmdList);
 
 private:
 	// Vertex and index data

@@ -13,18 +13,13 @@ inline void CheckHRESULT(HRESULT hr = S_OK)
     }
 }
 
-//inline void GetAssetsPath(WCHAR* path, UINT pathSize)
-//{
-//    DWORD size = GetModuleFileName(nullptr, path, pathSize);
-//    if (size != 0)
-//    {
-//        WCHAR* lastSlash = wcsrchr(path, L'\\');
-//        if (lastSlash)
-//        {
-//            *(lastSlash + 1) = L'\0';
-//        }
-//    }
-//}
+inline std::string WStringToString(const std::wstring& wstr)
+{
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
+    std::string str(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.size()), &str[0], size_needed, nullptr, nullptr);
+    return str;
+}
 
 //void LogError(const char* message, HRESULT hr = S_OK)
 //{
