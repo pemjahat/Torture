@@ -59,7 +59,7 @@ struct DescriptorHeapAllocator
 class RenderApplication
 {
 public:
-    RenderApplication(UINT width, UINT height);
+    RenderApplication(UINT width, UINT height, const char* argv);
 
     void OnInit(SDL_Window* window);
     void OnUpdate();
@@ -138,10 +138,10 @@ private:
     StepTimer m_timer;
     SimpleCamera m_camera;
 
-    // Root assets path.
-    std::wstring m_assetsPath;
+    // Root assets path. (helper)
+    std::string m_executablePath;
 
-    std::wstring GetAssetFullPath(LPCWSTR assetName);
+    std::wstring GetAssetFullPath(const std::string& relativePath);
 
     void LoadPipeline();
     void LoadAsset(SDL_Window* window);

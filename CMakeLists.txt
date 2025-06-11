@@ -56,6 +56,11 @@ file(GLOB SOURCES
     "${CMAKE_SOURCE_DIR}/sources/*.h"
 )
 
+# Set Output to binary
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/bin")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/bin")
+
 # Add executable
 add_executable(${PROJECT_NAME} ${SOURCES})
 
@@ -80,30 +85,7 @@ target_sources(${PROJECT_NAME} PRIVATE ${SHADER_FILES})
 foreach(SHADER ${SHADER_FILES})
     # prevent vs from compile it
     set_source_files_properties(${SHADER} PROPERTIES VS_TOOL_OVERRIDE "None")
-    message(STATUS "Found shader: ${SHADER}")
-    # get file name for use in output directory
-    #get_filename_component(SHADER_NAME ${SHADER} NAME)
-    # configure file to be copied to output directory
-    #configure_file(${SHADER} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${SHADER_NAME} COPYONLY)
-    #add_custom_command(
-        #TARGET ${PROJECT_NAME} POST_BUILD
-        #COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            #${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_NAME}
-            #${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${SHADER_NAME}
-    #)
-
-    #add_custom_command(
-        #TARGET ${PROJECT_NAME} POST_BUILD
-        #COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            #${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_NAME}
-            #${CMAKE_CURRENT_BINARY_DIR}/${SHADER_NAME}
-    #)
 endforeach()
-
-# Copy asset to
-#file(GLOB GLTF_ASSETS "${CMAKE_SOURCE_DIR}/content/*.gltf")
-
-# Copy assets 
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -145,10 +127,3 @@ endif()
 
 # Set SDL_Window as the startup project for Visual Studio
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
-
-# Set Output to binary
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/bin")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/bin")
-#set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin)
-#set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin)
