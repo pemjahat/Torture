@@ -397,7 +397,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     }
 
     // Model
-    std::wstring gltfPath = GetAssetFullPath("content/Box.gltf");
+    std::wstring gltfPath = GetAssetFullPath("content/BoxInterleaved.gltf");
         
     m_model.LoadFromFile(WStringToString(gltfPath));
     m_model.UploadGpuResources(m_d3dDevice.Get(), m_commandList.Get());

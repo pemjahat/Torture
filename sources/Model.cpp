@@ -40,65 +40,92 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
     m_vertices.clear();
     m_indices.clear();
 
+    /* Typical buffer view for box.gltf (one per attribute)*/
+    /*
+    * buffer: 0, byteoffset: 0, bytelength: 96      // Positions -> 8 vert * 3 floats * 4 bytes = 96 bytes
+    * buffer: 0, byteoffset: 96, bytelength: 96     // Normals
+    * buffer: 0, byteoffset: 192, bytelength: 64    // Texcoord
+    */
+
+    /* Typical buffer view for boxinterleaved.gltf (single buffer view, all attribute interleaved)*/
+    /*
+    * buffer: 0, byteoffset: 0, bytelength: 256, bytestride: 32
+    */
     // Assume the first mesh in the first scene
     const auto& mesh = model.meshes[0];
     const auto& primitive = mesh.primitives[0];
 
     // Get vertex positions
-    const auto& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
-    const auto& posView = model.bufferViews[posAccessor.bufferView];
-    const auto& posBuffer = model.buffers[posView.buffer];
-    const float* posData = reinterpret_cast<const float*>(&posBuffer.data[posView.byteOffset + posAccessor.byteOffset]);
+    const tinygltf::Accessor& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
+    const tinygltf::BufferView& posView = model.bufferViews[posAccessor.bufferView];
+    const tinygltf::Buffer& posBuffer = model.buffers[posView.buffer];
 
-    // Get vertex colors (if available, otherwise use a default color)
-    bool hasColor = primitive.attributes.find("COLOR_0") != primitive.attributes.end();
-    const float* colorData = nullptr;
-    if (hasColor)
+    // Handle interleaved or non-interleaved
     {
-        const auto& colorAccessor = model.accessors[primitive.attributes.at("COLOR_0")];
-        const auto& colorView = model.bufferViews[colorAccessor.bufferView];
-        const auto& colorBuffer = model.buffers[colorView.buffer];
-        colorData = reinterpret_cast<const float*>(&colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset]);
-    }
+        const unsigned char* bufferData = &posBuffer.data[posView.byteOffset + posAccessor.byteOffset];
+        size_t byteStride = posView.byteStride ? posView.byteStride : sizeof(float) * 3;
+        m_vertices.resize(posAccessor.count);
 
-    // Extract vertices
-    m_vertices.resize(posAccessor.count);
-    for (size_t i = 0; i < posAccessor.count; ++i)
-    {
-        m_vertices[i].Position = DirectX::XMFLOAT3(posData[i * 3 + 0], posData[i * 3 + 1], posData[i * 3 + 2]);
-        if (hasColor)
+        for (size_t i = 0; i < posAccessor.count; ++i)
         {
-            m_vertices[i].Color = DirectX::XMFLOAT4(colorData[i * 4 + 0], colorData[i * 4 + 1], colorData[i * 4 + 2], colorData[i * 4 + 3]);
-        }
-        else
-        {
+            const float* postData = reinterpret_cast<const float*>(bufferData + i * byteStride);
+            m_vertices[i].Position = DirectX::XMFLOAT3(postData[0], postData[1], postData[2]);
             m_vertices[i].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
+            m_vertices[i].Uv = DirectX::XMFLOAT2(0.f, 0.f);
         }
-        // Add dummy uv value
-        m_vertices[i].Uv = DirectX::XMFLOAT2(0.f, 0.f);
     }
-
+    
     // Get indices
     const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
-    const auto& indexView = model.bufferViews[indexAccessor.bufferView];
-    const auto& indexBuffer = model.buffers[indexView.buffer];
+    const tinygltf::BufferView& indexView = model.bufferViews[indexAccessor.bufferView];
+    const tinygltf::Buffer& indexBuffer = model.buffers[indexView.buffer];
 
-    m_indices.resize(indexAccessor.count);
-    if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
+    // Indices are non interlace so stride is component size
     {
-        const uint16_t* indexData = reinterpret_cast<const uint16_t*>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset]);
-        for (size_t i = 0; i < indexAccessor.count; ++i){
-            m_indices[i] = static_cast<uint32_t>(indexData[i]);
+        const unsigned char* bufferData = &indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset];
+        m_indices.resize(indexAccessor.count);
+
+        if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
+        {
+            const uint16_t* indexData = reinterpret_cast<const uint16_t*>(bufferData);
+            for (size_t i = 0; i < indexAccessor.count; ++i) {
+                m_indices[i] = static_cast<uint32_t>(indexData[i]);
+            }
+        }
+        else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT)
+        {
+            const uint32_t* indexData = reinterpret_cast<const uint32_t*>(bufferData);
+            for (size_t i = 0; i < indexAccessor.count; ++i) {
+                m_indices[i] = indexData[i];
+            }
         }
     }
-    else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT)
-    {
-        const uint32_t* indexData = reinterpret_cast<const uint32_t*>(&indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset]);
-        for (size_t i = 0; i < indexAccessor.count; ++i) {
-            m_indices[i] = indexData[i];
-        }
-    }
+    //// Get vertex colors (if available, otherwise use a default color)
+    //bool hasColor = primitive.attributes.find("COLOR_0") != primitive.attributes.end();
+    //const float* colorData = nullptr;
+    //if (hasColor)
+    //{
+    //    const tinygltf::Accessor& colorAccessor = model.accessors[primitive.attributes.at("COLOR_0")];
+    //    const tinygltf::BufferView& colorView = model.bufferViews[colorAccessor.bufferView];
+    //    const tinygltf::Buffer& colorBuffer = model.buffers[colorView.buffer];
+    //    colorData = reinterpret_cast<const float*>(&colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset]);
+    //}
 
+    //// Extract vertices
+    //for (size_t i = 0; i < posAccessor.count; ++i)
+    //{
+    //    m_vertices[i].Position = DirectX::XMFLOAT3(posData[i * 3 + 0], posData[i * 3 + 1], posData[i * 3 + 2]);
+    //    if (hasColor)
+    //    {
+    //        m_vertices[i].Color = DirectX::XMFLOAT4(colorData[i * 4 + 0], colorData[i * 4 + 1], colorData[i * 4 + 2], colorData[i * 4 + 3]);
+    //    }
+    //    else
+    //    {
+    //        m_vertices[i].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
+    //    }
+    //    // Add dummy uv value
+    //    m_vertices[i].Uv = DirectX::XMFLOAT2(0.f, 0.f);
+    //}
 	return S_OK;
 }
 
