@@ -13,49 +13,6 @@
 
 using Microsoft::WRL::ComPtr;
 
-struct DescriptorHeapAllocator
-{
-    ComPtr<ID3D12DescriptorHeap> Heap = nullptr;
-    D3D12_DESCRIPTOR_HEAP_TYPE  HeapType = D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
-    D3D12_CPU_DESCRIPTOR_HANDLE HeapStartCpu;
-    D3D12_GPU_DESCRIPTOR_HANDLE HeapStartGpu;
-    UINT    HeapHandleIncrement;
-    std::vector<int> FreeIndices;
-
-    void Create(ComPtr<ID3D12Device> device, ComPtr<ID3D12DescriptorHeap> heap)
-    {
-        Heap = heap;
-        D3D12_DESCRIPTOR_HEAP_DESC desc = heap->GetDesc();
-        HeapType = desc.Type;
-        HeapStartCpu = Heap->GetCPUDescriptorHandleForHeapStart();
-        HeapStartGpu = Heap->GetGPUDescriptorHandleForHeapStart();
-        HeapHandleIncrement = device->GetDescriptorHandleIncrementSize(HeapType);
-        FreeIndices.reserve(desc.NumDescriptors);
-        for (int n = desc.NumDescriptors; n > 0; n--)
-            FreeIndices.push_back(n - 1);
-    }
-
-    void Destroy()
-    {
-        Heap = nullptr;
-        FreeIndices.clear();
-    }
-
-    void Alloc(D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_desc_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_desc_handle)
-    {
-        int idx = FreeIndices.back();
-        FreeIndices.pop_back();
-        out_cpu_desc_handle->ptr = HeapStartCpu.ptr + (idx * HeapHandleIncrement);
-        out_gpu_desc_handle->ptr = HeapStartGpu.ptr + (idx * HeapHandleIncrement);
-    }
-
-    void Free(D3D12_CPU_DESCRIPTOR_HANDLE cpu_desc_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_desc_handle)
-    {
-        int cpu_idx = (int)((cpu_desc_handle.ptr - HeapStartCpu.ptr) / HeapHandleIncrement);
-        int gpu_idx = (int)((gpu_desc_handle.ptr - HeapStartGpu.ptr) / HeapHandleIncrement);
-        FreeIndices.push_back(cpu_idx);
-    }
-};
 
 class RenderApplication
 {
@@ -76,16 +33,6 @@ public:
 private:
     static const UINT FrameCount = 2;
     static const UINT SrvHeapSize = 256;
-    static const UINT TextureWidth = 256;
-    static const UINT TextureHeight = 256;
-    static const UINT TexturePixelSize = 4; // Byte per pixel on texture
-
-    struct Vertex
-    {
-        float position[3];
-        float color[4];
-        float uv[2];
-    };
 
     struct SceneConstantBuffer
     {
@@ -108,8 +55,10 @@ private:
 
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvDescHeap;
-    D3D12_CPU_DESCRIPTOR_HANDLE m_srvTextureCpuHandle;
-    D3D12_GPU_DESCRIPTOR_HANDLE m_srvTextureGpuHandle;
+    ComPtr<ID3D12DescriptorHeap> m_samplerDescHeap;
+    ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE m_dsvCpuHandle;
     D3D12_CPU_DESCRIPTOR_HANDLE m_cbvCpuDescHandle;
     D3D12_GPU_DESCRIPTOR_HANDLE m_cbvGpuDescHandle;
 
@@ -117,9 +66,7 @@ private:
     UINT m_rtvDescriptorSize;
 
     // Render app resources
-    ComPtr<ID3D12Resource> m_vertexBuffer;
-    ComPtr<ID3D12Resource> m_texture;
-    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
+    ComPtr<ID3D12Resource> m_depth;
     ComPtr<ID3D12Resource> m_constantBuffer;
     SceneConstantBuffer m_constantBufferData;
     UINT8* m_cbvDataBegin;
@@ -149,7 +96,6 @@ private:
 
     void LoadPipeline();
     void LoadAsset(SDL_Window* window);
-    std::vector<UINT8> GenerateTextureData();
     void PopulateCommandList();
     void MoveToNextFrame();
     void WaitForGpu();
