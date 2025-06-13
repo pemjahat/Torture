@@ -22,6 +22,21 @@
 
 static DescriptorHeapAllocator  g_descHeapAllocator;
 
+
+// Convert polar (azimuth, elevation) to Cartesian (XMFLOAT3)
+XMFLOAT3 PolarToCartesian(float azimuth, float elevation) {
+    float cosPhi = cosf(elevation);
+    XMFLOAT3 dir = {
+        cosPhi * cosf(azimuth),
+        sinf(elevation),
+        cosPhi * sinf(azimuth)
+    };
+    XMVECTOR v = XMLoadFloat3(&dir);
+    v = XMVector3Normalize(v); // Ensure normalized
+    XMStoreFloat3(&dir, v);
+    return dir;
+}
+
 RenderApplication::RenderApplication(UINT Width, UINT Height, const char* argv) :
     m_width(Width),
     m_height(Height),
@@ -30,6 +45,8 @@ RenderApplication::RenderApplication(UINT Width, UINT Height, const char* argv) 
     m_constantBufferData{},
     m_frameIndex(0),
     m_fenceValue{},
+    m_azimuth(XM_PI),
+    m_elevation(0.f),
     m_executablePath(argv)
 {
     m_aspectRatio = static_cast<float>(m_width) / static_cast<float>(m_height);
@@ -464,9 +481,7 @@ void RenderApplication::OnUpdate()
     // No need to unmap unless we're done with buffer
     memcpy(m_cbvDataBegin, &m_constantBufferData, sizeof(m_constantBufferData));
 
-    XMVECTOR v = XMLoadFloat3(&m_directionalLight.direction);
-    v = XMVector3Normalize(v);
-    XMStoreFloat3(&m_directionalLight.direction, v);
+    m_directionalLight.direction = PolarToCartesian(m_azimuth, m_elevation);
 
     memcpy(m_lightDataBegin, &m_directionalLight, sizeof(LightData));
 }
@@ -532,11 +547,8 @@ void RenderApplication::PopulateCommandList()
         ImGui::ColorEdit3("clear color", (float*)&clear_color);
         ImGui::ColorEdit3("light color", (float*)&m_directionalLight.color);
 
-        float dirLight[3] = {m_directionalLight.direction.x, m_directionalLight.direction.y, m_directionalLight.direction.z};
-        if (ImGui::DragFloat3("light direction", dirLight, 0.01f))
-        {
-            m_directionalLight.direction = XMFLOAT3(dirLight[0], dirLight[1], dirLight[2]);
-        }
+        ImGui::SliderFloat("Light Azimuth", &m_azimuth, 0.f, XM_2PI, "%.2f");
+        ImGui::SliderFloat("Light Elevation", &m_elevation, -XM_PIDIV2, XM_PIDIV2, "%.2f");
 
         /*if (ImGui::Button("Button"))
             counter++;

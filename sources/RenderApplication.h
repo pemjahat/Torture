@@ -100,6 +100,8 @@ private:
     SimpleCamera m_camera;
 
     // Light
+    float m_azimuth;
+    float m_elevation;
     LightData m_directionalLight;
 
     // GLTF
