@@ -106,6 +106,24 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
             m_model.vertices[i].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
         }
     }
+
+    // Get normal
+    if (primitive.attributes.find("NORMAL") != primitive.attributes.end())
+    {
+        const tinygltf::Accessor& normAccessor = model.accessors[primitive.attributes.at("NORMAL")];
+        const tinygltf::BufferView& normView = model.bufferViews[normAccessor.bufferView];
+        const tinygltf::Buffer& normBuffer = model.buffers[normView.buffer];
+
+        const unsigned char* bufferData = &normBuffer.data[normView.byteOffset + normAccessor.byteOffset];
+        size_t byteStride = normView.byteStride ? normView.byteStride : sizeof(float) * 3;
+        
+        assert(normAccessor.count == m_model.vertices.size());
+        for (size_t i = 0; i < normAccessor.count; ++i)
+        {
+            const float* normData = reinterpret_cast<const float*>(bufferData + i * byteStride);
+            m_model.vertices[i].Normal = DirectX::XMFLOAT3(normData[0], normData[1], normData[2]);
+        }
+    }
     
     // Get texture coordinates
     if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end())
@@ -154,7 +172,37 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
     if (primitive.material >= 0)
     {
         const auto& material = model.materials[primitive.material];
-        if (material.values.find("baseColorTexture") != material.values.end())
+
+        // So far only use "pbr metallic-roughness"
+        const auto& pbr = material.pbrMetallicRoughness;
+        // Load base color
+        if (pbr.baseColorTexture.index >= 0)
+        {
+            const tinygltf::Texture& texture = model.textures[pbr.baseColorTexture.index];
+            const tinygltf::Image& image = model.images[texture.source];
+
+            TextureData texData;
+            texData.pixels = image.image;
+            texData.width = image.width;
+            texData.height = image.height;
+            texData.channels = image.component;
+            m_model.textures.push_back(std::move(texData));
+        }
+        // Load normal texture
+        if (material.normalTexture.index >= 0)
+        {
+            const tinygltf::Texture& texture = model.textures[material.normalTexture.index];
+            const tinygltf::Image& image = model.images[texture.source];
+
+            TextureData texData;
+            texData.pixels = image.image;
+            texData.width = image.width;
+            texData.height = image.height;
+            texData.channels = image.component;
+            m_model.textures.push_back(std::move(texData));
+        }
+
+        /*if (material.values.find("baseColorTexture") != material.values.end())
         {
             const auto& texInfo = material.values.at("baseColorTexture");
             int texIndex = texInfo.TextureIndex();
@@ -170,14 +218,17 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
                 texData.channels = image.component;
                 m_model.textures.push_back(std::move(texData));
 
-                const auto& sampler = model.samplers[texture.sampler];
-                SamplerData samplerData;
-                samplerData.filter = GetD3D12Filter(sampler.magFilter, sampler.minFilter);
-                samplerData.addressU = GetD3D12AddressMode(sampler.wrapS);
-                samplerData.addressV = GetD3D12AddressMode(sampler.wrapT);
-                m_model.samplers.push_back(std::move(samplerData));
+                if (texture.sampler >= 0)
+                {
+                    const auto& sampler = model.samplers[texture.sampler];
+                    SamplerData samplerData;
+                    samplerData.filter = GetD3D12Filter(sampler.magFilter, sampler.minFilter);
+                    samplerData.addressU = GetD3D12AddressMode(sampler.wrapS);
+                    samplerData.addressV = GetD3D12AddressMode(sampler.wrapT);
+                    m_model.samplers.push_back(std::move(samplerData));
+                }
             }
-        }
+        }*/
     }
 
 	return S_OK;
@@ -241,67 +292,71 @@ HRESULT Model::UploadGpuResources(
     // Create texture
     if (!m_model.textures.empty())
     {
-        // take the first one for now
-        auto& textureData = m_model.textures[0];
+        for (auto& textureData : m_model.textures)
+        {
+            D3D12_RESOURCE_DESC textureDesc = {};
+            textureDesc.MipLevels = 1;
+            textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            textureDesc.Width = textureData.width;
+            textureDesc.Height = textureData.height;
+            textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+            textureDesc.DepthOrArraySize = 1;
+            textureDesc.SampleDesc.Count = 1;
+            textureDesc.SampleDesc.Quality = 0;
+            textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 
-        D3D12_RESOURCE_DESC textureDesc = {};
-        textureDesc.MipLevels = 1;
-        textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        textureDesc.Width = textureData.width;
-        textureDesc.Height = textureData.height;
-        textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-        textureDesc.DepthOrArraySize = 1;
-        textureDesc.SampleDesc.Count = 1;
-        textureDesc.SampleDesc.Quality = 0;
-        textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            CheckHRESULT(device->CreateCommittedResource(
+                &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+                D3D12_HEAP_FLAG_NONE,
+                &textureDesc,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+                nullptr,
+                IID_PPV_ARGS(&textureData.texture)));
 
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
-            &textureDesc,
-            D3D12_RESOURCE_STATE_COPY_DEST,
-            nullptr,
-            IID_PPV_ARGS(&textureData.texture)));
+            // Staging buffer to upload
+            const UINT64 uploadBufferSize = GetRequiredIntermediateSize(textureData.texture.Get(), 0, 1);
 
-        // Staging buffer to upload
-        const UINT64 uploadBufferSize = GetRequiredIntermediateSize(textureData.texture.Get(), 0, 1);
+            CheckHRESULT(device->CreateCommittedResource(
+                &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+                D3D12_HEAP_FLAG_NONE,
+                &CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
+                D3D12_RESOURCE_STATE_GENERIC_READ,
+                nullptr,
+                IID_PPV_ARGS(&textureData.uploadBuffer)));
 
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&m_textureUploadHeap)));
-        
-        D3D12_SUBRESOURCE_DATA textureResourceData = {};
-        textureResourceData.pData = &textureData.pixels[0];
-        textureResourceData.RowPitch = textureData.width * sizeof(float);
-        textureResourceData.SlicePitch = textureResourceData.RowPitch * textureData.height;
+            D3D12_SUBRESOURCE_DATA textureResourceData = {};
+            textureResourceData.pData = &textureData.pixels[0];
+            textureResourceData.RowPitch = textureData.width * sizeof(float);
+            textureResourceData.SlicePitch = textureResourceData.RowPitch * textureData.height;
 
-        UpdateSubresources(cmdList, textureData.texture.Get(), m_textureUploadHeap.Get(), 0, 0, 1, &textureResourceData);
+            UpdateSubresources(cmdList, textureData.texture.Get(), textureData.uploadBuffer.Get(), 0, 0, 1, &textureResourceData);
 
-        D3D12_RESOURCE_BARRIER barrier = {};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource = textureData.texture.Get();
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        // Need this if descriptor table is shared = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        cmdList->ResourceBarrier(1, &barrier);
+            D3D12_RESOURCE_BARRIER barrier = {};
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = textureData.texture.Get();
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            // Need this if descriptor table is shared = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            cmdList->ResourceBarrier(1, &barrier);
 
-        // Srv for texture
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Format = textureDesc.Format;
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MipLevels = 1;
-        heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
-        device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
+            // Srv for texture
+            D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+            srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srvDesc.Format = textureDesc.Format;
+            srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srvDesc.Texture2D.MipLevels = 1;
+            heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
+            device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
+        }
     }
 
-    // Create sampler
-    if (!m_model.samplers.empty())
+    // Create sampler (create dummy if it's empty)
+    if (m_model.samplers.empty())
+    {
+        SamplerData samplerData{};
+        m_model.samplers.push_back(std::move(samplerData));
+    }
     {
         // take the first one for now
         auto& samplerData = m_model.samplers[0];

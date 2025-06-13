@@ -42,6 +42,14 @@ private:
         float padding[16];  // padd to 256byte aligned
     };
 
+    struct LightData
+    {
+        XMFLOAT3 direction;
+        float intensity;
+        XMFLOAT3 color;
+        float padding;
+    };
+
     // Pipeline object
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;
@@ -59,8 +67,11 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
 
     D3D12_CPU_DESCRIPTOR_HANDLE m_dsvCpuHandle;
+
     D3D12_CPU_DESCRIPTOR_HANDLE m_cbvCpuDescHandle;
     D3D12_GPU_DESCRIPTOR_HANDLE m_cbvGpuDescHandle;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE m_lightCpuDescHandle;
 
     ComPtr<ID3D12GraphicsCommandList> m_commandList;
     UINT m_rtvDescriptorSize;
@@ -68,8 +79,10 @@ private:
     // Render app resources
     ComPtr<ID3D12Resource> m_depth;
     ComPtr<ID3D12Resource> m_constantBuffer;
-    SceneConstantBuffer m_constantBufferData;
+    ComPtr<ID3D12Resource> m_lightCB;
+    SceneConstantBuffer m_constantBufferData;    
     UINT8* m_cbvDataBegin;
+    UINT8* m_lightDataBegin;
 
     // Synchronization
     UINT m_frameIndex;
@@ -85,6 +98,9 @@ private:
     // Camera
     StepTimer m_timer;
     SimpleCamera m_camera;
+
+    // Light
+    LightData m_directionalLight;
 
     // GLTF
     Model m_model;

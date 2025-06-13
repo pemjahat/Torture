@@ -26,6 +26,7 @@ RenderApplication::RenderApplication(UINT Width, UINT Height, const char* argv) 
     m_width(Width),
     m_height(Height),
     m_cbvDataBegin(nullptr),
+    m_lightDataBegin(nullptr),
     m_constantBufferData{},
     m_frameIndex(0),
     m_fenceValue{},
@@ -41,6 +42,15 @@ void RenderApplication::OnInit(SDL_Window* window)
 {
     m_camera.Init({ 0, 0, 10 });
     m_camera.SetMoveSpeed(15.f);
+
+    // Light
+    m_directionalLight.direction = XMFLOAT3(-1.f, -1.f, -1.f);
+    XMVECTOR v = XMLoadFloat3(&m_directionalLight.direction);
+    v = XMVector3Normalize(v);
+    XMStoreFloat3(&m_directionalLight.direction, v);
+
+    m_directionalLight.intensity = 1.f;
+    m_directionalLight.color = XMFLOAT3(1.f, 1.f, 1.f);
 
     LoadPipeline();
     LoadAsset(window);
@@ -190,9 +200,9 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // 0 - base shader register (start with 0)
     // 0 - register space (for advance scenario)
     // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
-    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);  // Albedo + Normal
     ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0);
-    ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);    // Dynamic update
+    ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);    // Scene + Light CB
 
     // Root parameter in root signature
     // Tell GPU how access SRV via descriptor table
@@ -257,8 +267,9 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
     {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
     };
 
     // Rasterize desc (match with GLTF CCW convention)
@@ -340,7 +351,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         m_d3dDevice->CreateDepthStencilView(m_depth.Get(), &dsvDesc, m_dsvCpuHandle);
     }
 
-    // Create constant buffer
+    // Create constant buffer for scene
     {
         const UINT constantBufferSize = sizeof(SceneConstantBuffer);
 
@@ -365,8 +376,35 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         memcpy(m_cbvDataBegin, &m_constantBufferData, sizeof(m_constantBufferData));        
     }
 
+    // Constant buffer for light
+    {
+        const UINT lightBufferSize = (sizeof(LightData) + 255) & ~255;  // Align to 256 byte
+        CheckHRESULT(m_d3dDevice->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(lightBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_lightCB)));
+
+        // buffer view
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+        cbvDesc.BufferLocation = m_lightCB->GetGPUVirtualAddress();
+        cbvDesc.SizeInBytes = lightBufferSize;
+
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuDescHandle;
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuDescHandle;
+        g_descHeapAllocator.Alloc(&cpuDescHandle, &gpuDescHandle);
+        m_d3dDevice->CreateConstantBufferView(&cbvDesc, cpuDescHandle);
+
+        // Map and initialize constant buffer
+        CheckHRESULT(m_lightCB->Map(0, nullptr, reinterpret_cast<void**>(&m_lightDataBegin)));
+        memcpy(m_lightDataBegin, &m_directionalLight, sizeof(LightData));
+        //m_lightCB->Unmap(0, nullptr);
+    }
+
     // Model
-    std::wstring gltfPath = GetAssetFullPath("content/BoxTextured.gltf");
+    std::wstring gltfPath = GetAssetFullPath("content/Box With Spaces.gltf");
         
     m_model.LoadFromFile(WStringToString(gltfPath));
     m_model.UploadGpuResources(m_d3dDevice.Get(), g_descHeapAllocator, m_samplerDescHeap.Get(), m_commandList.Get());
@@ -425,6 +463,12 @@ void RenderApplication::OnUpdate()
     // Need to map buffer once during creation, udpate directly in mapped memory
     // No need to unmap unless we're done with buffer
     memcpy(m_cbvDataBegin, &m_constantBufferData, sizeof(m_constantBufferData));
+
+    XMVECTOR v = XMLoadFloat3(&m_directionalLight.direction);
+    v = XMVector3Normalize(v);
+    XMStoreFloat3(&m_directionalLight.direction, v);
+
+    memcpy(m_lightDataBegin, &m_directionalLight, sizeof(LightData));
 }
 
 void RenderApplication::OnRender()
@@ -469,7 +513,10 @@ void RenderApplication::PopulateCommandList()
     ImGui::NewFrame();
 
     static bool show_another_window = false;
+    static bool show_demo_window = true;
     static ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+
+    //ImGui::ShowDemoWindow(&show_demo_window);
 
     // Simple window
     {
@@ -483,11 +530,18 @@ void RenderApplication::PopulateCommandList()
 
         ImGui::SliderFloat("float", &f, 0.f, 1.f);
         ImGui::ColorEdit3("clear color", (float*)&clear_color);
+        ImGui::ColorEdit3("light color", (float*)&m_directionalLight.color);
 
-        if (ImGui::Button("Button"))
+        float dirLight[3] = {m_directionalLight.direction.x, m_directionalLight.direction.y, m_directionalLight.direction.z};
+        if (ImGui::DragFloat3("light direction", dirLight, 0.01f))
+        {
+            m_directionalLight.direction = XMFLOAT3(dirLight[0], dirLight[1], dirLight[2]);
+        }
+
+        /*if (ImGui::Button("Button"))
             counter++;
         ImGui::SameLine();
-        ImGui::Text("counter = %d", counter);
+        ImGui::Text("counter = %d", counter);*/
 
         ImGuiIO& io = ImGui::GetIO(); (void)io;
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.f / io.Framerate, io.Framerate);

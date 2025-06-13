@@ -13,6 +13,7 @@ using Microsoft::WRL::ComPtr;
 struct VertexData
 {
 	DirectX::XMFLOAT3 Position;
+	DirectX::XMFLOAT3 Normal;
 	DirectX::XMFLOAT4 Color;
 	DirectX::XMFLOAT2 Uv;
 };
@@ -26,6 +27,7 @@ struct TextureData
 
 	// Resource
 	ComPtr<ID3D12Resource> texture;
+	ComPtr<ID3D12Resource> uploadBuffer;
 	D3D12_CPU_DESCRIPTOR_HANDLE srvTextureCpuHandle;
 	D3D12_GPU_DESCRIPTOR_HANDLE srvTextureGpuHandle;
 };
@@ -76,7 +78,6 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_indexBuffer;
 	void* m_mappedVertexBufferData;
 	void* m_mappedIndexBufferData;
-	Microsoft::WRL::ComPtr<ID3D12Resource> m_textureUploadHeap;
 
 	// Buffer views
 	D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
