@@ -50,6 +50,8 @@ private:
         float padding;
     };
 
+    
+
     // Pipeline object
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;

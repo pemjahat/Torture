@@ -217,9 +217,9 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // 0 - base shader register (start with 0)
     // 0 - register space (for advance scenario)
     // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
-    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);  // Albedo + Normal
+    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);  // Albedo + Normal + MetallicRoughness
     ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0);
-    ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);    // Scene + Light CB
+    ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 3, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);    // Scene + Light CB + Material CB
 
     // Root parameter in root signature
     // Tell GPU how access SRV via descriptor table
@@ -286,7 +286,8 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
         {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
     };
 
     // Rasterize desc (match with GLTF CCW convention)
@@ -422,6 +423,8 @@ void RenderApplication::LoadAsset(SDL_Window* window)
 
     // Model
     std::wstring gltfPath = GetAssetFullPath("content/Box With Spaces.gltf");
+    //std::wstring gltfPath = GetAssetFullPath("content/BoxVertexColors.gltf");
+    //std::wstring gltfPath = GetAssetFullPath("content/Cube.gltf");
         
     m_model.LoadFromFile(WStringToString(gltfPath));
     m_model.UploadGpuResources(m_d3dDevice.Get(), g_descHeapAllocator, m_samplerDescHeap.Get(), m_commandList.Get());

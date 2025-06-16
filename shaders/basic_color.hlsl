@@ -15,11 +15,25 @@ cbuffer LightData : register(b1)
     float padded;
 };
 
+cbuffer MaterialData : register(b2)
+{
+    int useVertexColor;
+    int useTangent;                 //  1 if tangent available, 0 use Mikktspace
+    float metallicFactor;
+    float roughnessFactor;
+    
+    int hasAlbedoMap;
+    int hasMetallicRoughnessMap; // 1 if metallic roughness map available
+    int hasNormalMap;               // 1 if normal map availabe
+    float paddedMat;
+};
+
 struct VSInput
 {
     float3 position : POSITION;
     float3 normal : NORMAL;
     float4 color : COLOR;
+    float4 tangent : TANGENT;
     float2 uv : TEXCOORD;
 };
 
@@ -29,11 +43,13 @@ struct PSInput
     float3 worldPos : POSITION;
     float3 normal : NORMAL;
     float4 color : COLOR;
+    float4 tangent : TANGENT;
     float2 uv : TEXCOORD;
 };
 
-Texture2D albedoTexture : register(t0);
-Texture2D normalTexture : register(t1);
+Texture2D albedoTex : register(t0);
+Texture2D metallicRoughnessTex : register(t1);
+Texture2D normalTex : register(t2);
 
 SamplerState g_sampler : register(s0);
 
@@ -45,46 +61,90 @@ PSInput VSMain(VSInput input)
     output.worldPos = input.position;
     output.normal = input.normal;
     output.color = input.color;
+    output.tangent = input.tangent;
     output.uv = input.uv;
     return output;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    float4 albedo = albedoTexture.Sample(g_sampler, input.uv);
-    float3 normalMap = normalTexture.Sample(g_sampler, input.uv); // normal map in tangent space
-    normalMap = normalMap * 2.f - 1.f;
-    normalMap = normalize(normalMap);
-    
+    //
+    // Normal
+    //
+    float3x3 TBN;
+    if (useTangent)
+    {
+        float3 T = normalize(input.tangent.xyz);
+        float3 N = normalize(input.normal);
+        T = normalize(T - dot(T, N) * N); /// Orthogonalize
+        float3 B = normalize(cross(N, T) * input.tangent.w);
+        TBN = float3x3(T, B, N);
+    }
     // Compute TBN using Mikktspace (http://www.thetenthplanet.de/archives/1180)
-    float3 N = normalize(input.normal);
-    float3 dPdx = ddx(input.worldPos);
-    float3 dPdy = ddy(input.worldPos);
-    float2 dUVdx = ddx(input.uv);
-    float2 dUVdy = ddy(input.uv);
+    else
+    {
+        float3 N = normalize(input.normal);
+        float3 dPdx = ddx(input.worldPos);
+        float3 dPdy = ddy(input.worldPos);
+        float2 dUVdx = ddx(input.uv);
+        float2 dUVdy = ddy(input.uv);
 
-    // Solve for T and B
-    float3 dp2perp = cross(dPdy, N);
-    float3 dp1perp = cross(N, dPdx);
-    float3 T = dp2perp * dUVdx.x + dp1perp * dUVdy.x;
-    float3 B = dp2perp * dUVdx.y + dp1perp * dUVdy.y;
+        // Solve for T and B
+        float3 dp2perp = cross(dPdy, N);
+        float3 dp1perp = cross(N, dPdx);
+        float3 T = dp2perp * dUVdx.x + dp1perp * dUVdy.x;
+        float3 B = dp2perp * dUVdx.y + dp1perp * dUVdy.y;
     
-    float invmax = rsqrt(max(dot(T, T), dot(B, B)));
-    T = T * invmax;
-    B = B * invmax;
+        float invmax = rsqrt(max(dot(T, T), dot(B, B)));
+        T = T * invmax;
+        B = B * invmax;
+        
+        // Orthogonalize T (Gram-Schmidt)
+        T = normalize(T - dot(T, N) * N);
+        B = normalize(cross(N, T)); // Ensure correct handedness
+        TBN = float3x3(T, B, N);
+    }
+    
+    float3 worldNormal = normalize(input.normal);
+    if (hasNormalMap)
+    {
+        float3 normalMap = normalTex.Sample(g_sampler, input.uv); // normal map in tangent space
+        normalMap = normalMap * 2.f - 1.f;
+        normalMap = normalize(normalMap);
+        
+        worldNormal = normalize(mul(normalMap, TBN));
+    }
 
-    // Orthogonalize T (Gram-Schmidt)
-    T = normalize(T - dot(T, N) * N);
-    B = normalize(cross(N, T)); // Ensure correct handedness
-    float3x3 TBN = float3x3(T, B, N);
-
-    // Transform normal to world space
-    float3 worldNormal = normalize(mul(normalMap, TBN));
-
+    //
+    // Albedo
+    //
+    float3 albedo;
+    if (useVertexColor)
+    {
+        albedo = input.color.rgb;
+    }
+    else
+    {
+        albedo = albedoTex.Sample(g_sampler, input.uv).rgb;
+    }
+    
+    //
+    // Metallic - Roughness
+    //
+    float metallic = metallicFactor;
+    float roughness = roughnessFactor;
+    if (hasMetallicRoughnessMap)
+    {
+        float4 matSample = metallicRoughnessTex.Sample(g_sampler, input.uv);
+        metallic = matSample.b;
+        roughness = matSample.g;
+    }
+    float diffuseFactor = 1.f - metallic;
+    
     // Lighting calculation
     float3 lightDir = normalize(-direction);
     float NdotL = max(dot(worldNormal, lightDir), 0.0);
     
-    float3 lighting = albedo.rgb * color * intensity * NdotL;
-    return float4(lighting, albedo.a);
+    float3 lighting = albedo * color * intensity * NdotL * diffuseFactor;
+    return float4(lighting, 1.f);
 }

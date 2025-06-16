@@ -1,9 +1,7 @@
 #include "Model.h"
 
-#include <d3d12.h>
 #include "d3dx12.h"
 #include <tiny_gltf.h>
-#include "Helper.h"
 
 Model::Model()
 {
@@ -142,6 +140,47 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
             m_model.vertices[i].Uv = DirectX::XMFLOAT2(uvData[0], uvData[1]);
         }
     }
+
+    // Get vertex color
+    if (primitive.attributes.find("COLOR_0") != primitive.attributes.end())
+    {
+        m_model.material.useVertexColor = 1;
+
+        const tinygltf::Accessor& colorAccessor = model.accessors[primitive.attributes.at("COLOR_0")];
+        const tinygltf::BufferView& colorView = model.bufferViews[colorAccessor.bufferView];
+        const tinygltf::Buffer& colorBuffer = model.buffers[colorView.buffer];
+
+        const unsigned char* bufferData = &colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset];
+        size_t byteStride = colorView.byteStride ? colorView.byteStride : sizeof(float) * 4;
+
+        assert(colorAccessor.count == m_model.vertices.size());
+        for (size_t i = 0; i < colorAccessor.count; ++i)
+        {
+            const float* colorData = reinterpret_cast<const float*>(bufferData + i * byteStride);
+            m_model.vertices[i].Color = DirectX::XMFLOAT4(colorData[0], colorData[1], colorData[2], colorData[3]);
+        }
+    }
+
+    // Get tangent
+    if (primitive.attributes.find("TANGENT") != primitive.attributes.end())
+    {
+        m_model.material.useTangent = 1;
+
+        const tinygltf::Accessor& tangentAccessor = model.accessors[primitive.attributes.at("TANGENT")];
+        const tinygltf::BufferView& tangentView = model.bufferViews[tangentAccessor.bufferView];
+        const tinygltf::Buffer& tangentBuffer = model.buffers[tangentView.buffer];
+
+        const unsigned char* bufferData = &tangentBuffer.data[tangentView.byteOffset + tangentAccessor.byteOffset];
+        size_t byteStride = tangentView.byteStride ? tangentView.byteStride : sizeof(float) * 4;
+
+        assert(tangentAccessor.count == m_model.vertices.size());
+        for (size_t i = 0; i < tangentAccessor.count; ++i)
+        {
+            const float* tangentData = reinterpret_cast<const float*>(bufferData + i * byteStride);
+            m_model.vertices[i].Tangent = DirectX::XMFLOAT4(tangentData[0], tangentData[1], tangentData[2], tangentData[3]);
+        }
+    }
+
     // Get indices
     const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
     const tinygltf::BufferView& indexView = model.bufferViews[indexAccessor.bufferView];
@@ -168,16 +207,22 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
         }
     }
 
-    // Extract Texture
+    // Extract Material
     if (primitive.material >= 0)
     {
         const auto& material = model.materials[primitive.material];
 
         // So far only use "pbr metallic-roughness"
         const auto& pbr = material.pbrMetallicRoughness;
+
+        m_model.material.metallicFactor = static_cast<float>(pbr.metallicFactor);
+        m_model.material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
+
         // Load base color
         if (pbr.baseColorTexture.index >= 0)
         {
+            m_model.material.hasAlbedoMap = 1;
+
             const tinygltf::Texture& texture = model.textures[pbr.baseColorTexture.index];
             const tinygltf::Image& image = model.images[texture.source];
 
@@ -186,11 +231,30 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
             texData.width = image.width;
             texData.height = image.height;
             texData.channels = image.component;
+            texData.type = TextureType::Albedo;
+            m_model.textures.push_back(std::move(texData));
+        }
+        // Load material roughness texture
+        if (pbr.metallicRoughnessTexture.index >= 0)
+        {
+            m_model.material.hasMetallicRoughnessMap = 1;
+            
+            const tinygltf::Texture& texture = model.textures[pbr.metallicRoughnessTexture.index];
+            const tinygltf::Image& image = model.images[texture.source];
+
+            TextureData texData;
+            texData.pixels = image.image;
+            texData.width = image.width;
+            texData.height = image.height;
+            texData.channels = image.component;
+            texData.type = TextureType::MetallicRoughness;
             m_model.textures.push_back(std::move(texData));
         }
         // Load normal texture
         if (material.normalTexture.index >= 0)
         {
+            m_model.material.hasNormalMap = 1;
+
             const tinygltf::Texture& texture = model.textures[material.normalTexture.index];
             const tinygltf::Image& image = model.images[texture.source];
 
@@ -199,36 +263,9 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
             texData.width = image.width;
             texData.height = image.height;
             texData.channels = image.component;
+            texData.type = TextureType::Normal;
             m_model.textures.push_back(std::move(texData));
         }
-
-        /*if (material.values.find("baseColorTexture") != material.values.end())
-        {
-            const auto& texInfo = material.values.at("baseColorTexture");
-            int texIndex = texInfo.TextureIndex();
-            if (texIndex >= 0 && texIndex < model.images.size())
-            {
-                const tinygltf::Texture& texture = model.textures[texIndex];
-                const tinygltf::Image& image = model.images[texture.source];
-
-                TextureData texData;
-                texData.pixels = image.image;
-                texData.width = image.width;
-                texData.height = image.height;
-                texData.channels = image.component;
-                m_model.textures.push_back(std::move(texData));
-
-                if (texture.sampler >= 0)
-                {
-                    const auto& sampler = model.samplers[texture.sampler];
-                    SamplerData samplerData;
-                    samplerData.filter = GetD3D12Filter(sampler.magFilter, sampler.minFilter);
-                    samplerData.addressU = GetD3D12AddressMode(sampler.wrapS);
-                    samplerData.addressV = GetD3D12AddressMode(sampler.wrapT);
-                    m_model.samplers.push_back(std::move(samplerData));
-                }
-            }
-        }*/
     }
 
 	return S_OK;
@@ -236,7 +273,7 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
 
 HRESULT Model::UploadGpuResources(
 	ID3D12Device* device,
-    DescriptorHeapAllocator& heapAlloc, // for texture
+    DescriptorHeapAllocator& heapAlloc, // for texture/buffer    
     ID3D12DescriptorHeap* samplerHeap,	// For sampler
 	ID3D12GraphicsCommandList* cmdList)
 {
@@ -289,9 +326,37 @@ HRESULT Model::UploadGpuResources(
     m_indexBufferView.SizeInBytes = indexBufferSize;
     m_indexBufferView.Format = DXGI_FORMAT_R32_UINT;
 
+    // Create buffer for material data
+    {
+        const UINT materialBufferSize = (sizeof(MaterialData) + 255) & ~255;  // Align to 256 byte
+        CheckHRESULT(device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(materialBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_materialCB)));
+
+        // buffer view
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+        cbvDesc.BufferLocation = m_materialCB->GetGPUVirtualAddress();
+        cbvDesc.SizeInBytes = materialBufferSize;
+
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuDescHandle;
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuDescHandle;
+        heapAlloc.Alloc(&cpuDescHandle, &gpuDescHandle);
+        device->CreateConstantBufferView(&cbvDesc, cpuDescHandle);
+
+        // Map and initialize constant buffer
+        void* mappedData;
+        CheckHRESULT(m_materialCB->Map(0, nullptr, &mappedData));
+        memcpy(mappedData, &m_model.material, sizeof(MaterialData));
+        m_materialCB->Unmap(0, nullptr);
+    }
+
     // Create texture
     if (!m_model.textures.empty())
-    {
+    {   
         for (auto& textureData : m_model.textures)
         {
             D3D12_RESOURCE_DESC textureDesc = {};
@@ -339,15 +404,92 @@ HRESULT Model::UploadGpuResources(
             // Need this if descriptor table is shared = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
             barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             cmdList->ResourceBarrier(1, &barrier);
+        }
 
-            // Srv for texture
-            D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-            srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-            srvDesc.Format = textureDesc.Format;
-            srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-            srvDesc.Texture2D.MipLevels = 1;
-            heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
-            device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
+        // Order matter for SRV (Albedo : t0, Metallic: t1, Normal: t2)
+        // Null srv so we fix t0, t1, t2 orders
+        D3D12_SHADER_RESOURCE_VIEW_DESC nullSrvDesc = {};
+        nullSrvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        nullSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        nullSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        nullSrvDesc.Texture2D.MipLevels = 1;
+
+        // Albedo
+        if (m_model.material.hasAlbedoMap)
+        {
+            for (auto& textureData : m_model.textures)
+            {
+                if (textureData.type == TextureType::Albedo)
+                {
+                    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+                    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                    srvDesc.Texture2D.MipLevels = 1;
+                    heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
+                    device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
+                    break;  // Only 1 type per model
+                }
+            }
+        }
+        else
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
+            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
+            heapAlloc.Alloc(&cpuHandle, &gpuHandle);
+            device->CreateShaderResourceView(nullptr, &nullSrvDesc, cpuHandle);
+        }
+
+        // Mettalic/Roughness
+        if (m_model.material.hasMetallicRoughnessMap)
+        {
+            for (auto& textureData : m_model.textures)
+            {
+                if (textureData.type == TextureType::MetallicRoughness)
+                {
+                    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+                    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                    srvDesc.Texture2D.MipLevels = 1;
+                    heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
+                    device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
+                    break;  // Only 1 type per model
+                }
+            }
+        }
+        else
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
+            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
+            heapAlloc.Alloc(&cpuHandle, &gpuHandle);
+            device->CreateShaderResourceView(nullptr, &nullSrvDesc, cpuHandle);
+        }
+
+        // Normal
+        if (m_model.material.hasNormalMap)
+        {
+            for (auto& textureData : m_model.textures)
+            {
+                if (textureData.type == TextureType::Normal)
+                {
+                    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+                    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                    srvDesc.Texture2D.MipLevels = 1;
+                    heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
+                    device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
+                    break;  // Only 1 type per model
+                }
+            }
+        }
+        else
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
+            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
+            heapAlloc.Alloc(&cpuHandle, &gpuHandle);
+            device->CreateShaderResourceView(nullptr, &nullSrvDesc, cpuHandle);
         }
     }
 

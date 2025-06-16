@@ -15,7 +15,15 @@ struct VertexData
 	DirectX::XMFLOAT3 Position;
 	DirectX::XMFLOAT3 Normal;
 	DirectX::XMFLOAT4 Color;
+	DirectX::XMFLOAT4 Tangent;
 	DirectX::XMFLOAT2 Uv;
+};
+
+enum class TextureType
+{
+	Albedo,
+	MetallicRoughness,
+	Normal,
 };
 
 struct TextureData
@@ -24,12 +32,26 @@ struct TextureData
 	int width = 0;
 	int height = 0;
 	int channels = 0;	// for RGBA is 4
+	TextureType type = TextureType::Albedo;
 
 	// Resource
 	ComPtr<ID3D12Resource> texture;
 	ComPtr<ID3D12Resource> uploadBuffer;
 	D3D12_CPU_DESCRIPTOR_HANDLE srvTextureCpuHandle;
 	D3D12_GPU_DESCRIPTOR_HANDLE srvTextureGpuHandle;
+};
+
+struct MaterialData
+{
+	int useVertexColor = 0;
+	int useTangent = 0;
+	float metallicFactor = 0.f;
+	float roughnessFactor = 1.f;
+
+	int hasAlbedoMap = 0;
+	int hasMetallicRoughnessMap = 0;
+	int hasNormalMap = 0;
+	float paddedMat;
 };
 
 struct SamplerData
@@ -49,6 +71,7 @@ struct ModelData
 	std::vector<uint32_t> indices;
 	std::vector<TextureData> textures;
 	std::vector<SamplerData> samplers;
+	MaterialData material;
 };
 
 class Model
@@ -60,7 +83,7 @@ public:
 	HRESULT LoadFromFile(const std::string& filePath);
 	HRESULT UploadGpuResources(
 		ID3D12Device* device,
-		DescriptorHeapAllocator& heapAlloc,	// For srv
+		DescriptorHeapAllocator& heapAlloc,	// For srv		
 		ID3D12DescriptorHeap* samplerHeap,	// For sampler
 		ID3D12GraphicsCommandList* cmdList);
 	HRESULT RenderGpu(ID3D12GraphicsCommandList* cmdList);
@@ -82,6 +105,9 @@ private:
 	// Buffer views
 	D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
 	D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
+
+	ComPtr<ID3D12Resource> m_materialCB;
+	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;	
 };
 
 
