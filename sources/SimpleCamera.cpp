@@ -22,13 +22,11 @@ void SimpleCamera::Init(XMFLOAT3 position)
 void SimpleCamera::SetMoveSpeed(float unitsPerSecond)
 {
 	m_moveSpeed = unitsPerSecond;
-	Reset();
 }
 
 void SimpleCamera::SetTurnSpeed(float radiansPerSecond)
 {
 	m_turnSpeed = radiansPerSecond;
-	Reset();
 }
 
 void SimpleCamera::Reset()
@@ -73,8 +71,8 @@ void SimpleCamera::Update(float elapsedSeconds)
 		m_pitch -= rotateInterval;
 
 	// prevent looking too far up or down
-	m_pitch = std::min(m_pitch, XM_PIDIV4);
-	m_pitch = std::max(-XM_PIDIV4, m_pitch);
+	m_pitch = std::min(m_pitch, (XM_PIDIV4 + XM_1DIVPI));
+	m_pitch = std::max(-(XM_PIDIV4 + XM_1DIVPI), m_pitch);
 
 	// move camera in model space
 	float x = move.x * -cosf(m_yaw) - move.z * sinf(m_yaw);

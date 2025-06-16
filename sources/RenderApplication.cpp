@@ -45,20 +45,21 @@ RenderApplication::RenderApplication(UINT Width, UINT Height, const char* argv) 
     m_constantBufferData{},
     m_frameIndex(0),
     m_fenceValue{},
+    m_moveSpeed(20.f),
     m_azimuth(XM_PI),
     m_elevation(0.f),
     m_executablePath(argv)
 {
     m_aspectRatio = static_cast<float>(m_width) / static_cast<float>(m_height);
 
-    m_viewport = { 0.f, 0.f, (float)m_width, (float)m_height };
+    m_viewport = { 0.f, 0.f, (float)m_width, (float)m_height, 0.f, 1.f };
     m_scissorRect = { 0, 0, (LONG)m_width, (LONG)m_height };
 }
 
 void RenderApplication::OnInit(SDL_Window* window)
 {
-    m_camera.Init({ 0, 0, 10 });
-    m_camera.SetMoveSpeed(15.f);
+    m_camera.Init({ 0, 0.f, 10 });
+    m_camera.SetMoveSpeed(m_moveSpeed);
 
     // Light
     m_directionalLight.direction = XMFLOAT3(-1.f, -1.f, -1.f);
@@ -422,9 +423,10 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     }
 
     // Model
-    std::wstring gltfPath = GetAssetFullPath("content/Box With Spaces.gltf");
+    //std::wstring gltfPath = GetAssetFullPath("content/Box With Spaces.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/BoxVertexColors.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/Cube.gltf");
+    std::wstring gltfPath = GetAssetFullPath("content/Duck.gltf");
         
     m_model.LoadFromFile(WStringToString(gltfPath));
     m_model.UploadGpuResources(m_d3dDevice.Get(), g_descHeapAllocator, m_samplerDescHeap.Get(), m_commandList.Get());
@@ -469,6 +471,7 @@ void RenderApplication::OnUpdate()
 {
     m_timer.Tick();
 
+    m_camera.SetMoveSpeed(m_moveSpeed);
     m_camera.Update(static_cast<float>(m_timer.GetElapsedSeconds()));
 
     XMMATRIX world = XMMATRIX(g_XMIdentityR0, g_XMIdentityR1, g_XMIdentityR2, g_XMIdentityR3);
@@ -543,13 +546,16 @@ void RenderApplication::PopulateCommandList()
 
         ImGui::Begin("Hello, world!");
 
-        ImGui::Text("This is some useful text.");        
+        ImGui::Text("This is some useful text.");
         ImGui::Checkbox("Another window", &show_another_window);
 
-        ImGui::SliderFloat("float", &f, 0.f, 1.f);
-        ImGui::ColorEdit3("clear color", (float*)&clear_color);
-        ImGui::ColorEdit3("light color", (float*)&m_directionalLight.color);
+        ImGui::Text("Camera");
+        ImGui::SliderFloat("MoveSpeed", &m_moveSpeed, 1.f, 1000.f);
 
+        ImGui::ColorEdit3("clear color", (float*)&clear_color);
+
+        ImGui::Text("Directional Light");
+        ImGui::ColorEdit3("Light Color", (float*)&m_directionalLight.color);
         ImGui::SliderFloat("Light Azimuth", &m_azimuth, 0.f, XM_2PI, "%.2f");
         ImGui::SliderFloat("Light Elevation", &m_elevation, -XM_PIDIV2, XM_PIDIV2, "%.2f");
 

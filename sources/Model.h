@@ -65,6 +65,7 @@ struct SamplerData
 	D3D12_GPU_DESCRIPTOR_HANDLE samplerGpuHandle;
 };
 
+// todo: handle model as separate struct
 struct ModelData
 {
 	std::vector<VertexData> vertices;

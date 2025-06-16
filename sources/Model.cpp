@@ -3,6 +3,8 @@
 #include "d3dx12.h"
 #include <tiny_gltf.h>
 
+using namespace DirectX;
+
 Model::Model()
 {
     m_vertexBufferView = {};
@@ -54,6 +56,260 @@ D3D12_TEXTURE_ADDRESS_MODE Model::GetD3D12AddressMode(int wrapMode)
     }
 }
 
+//
+// Helper
+//
+XMMATRIX GetNodeTransform(const tinygltf::Node& node)
+{
+    XMMATRIX transform = XMMatrixIdentity();
+
+    // Translation
+    if (node.translation.size() == 3)
+    {
+        transform *= XMMatrixTranslation(
+            static_cast<float>(node.translation[0]),
+            static_cast<float>(node.translation[1]),
+            static_cast<float>(node.translation[2]));
+    }
+
+    // Rotation (quaternion: x, y, z, 0
+    if (node.rotation.size() == 4)
+    {
+        XMVECTOR quat = XMVectorSet(
+            static_cast<float>(node.rotation[0]),
+            static_cast<float>(node.rotation[1]),
+            static_cast<float>(node.rotation[2]),
+            static_cast<float>(node.rotation[3]));
+        transform *= XMMatrixRotationQuaternion(quat);
+    }
+
+    // Scale
+    if (node.scale.size() == 3)
+    {
+        transform *= XMMatrixScaling(
+            static_cast<float>(node.scale[0]),
+            static_cast<float>(node.scale[1]),
+            static_cast<float>(node.scale[2]));
+    }
+
+    // Matrix
+    if (node.matrix.size() == 16)
+    {
+        XMFLOAT4X4 mat;
+        for (int i = 0; i < 16; ++i)
+        {
+            reinterpret_cast<float*>(&mat)[i] = static_cast<float>(node.matrix[i]);
+        }
+        transform = XMLoadFloat4x4(&mat);
+    }
+
+    return transform;
+}
+
+void LoadTexture(const tinygltf::Model& model, int texIndex, TextureType texType, ModelData& modelData)
+{
+    const tinygltf::Texture& texture = model.textures[texIndex];
+    const tinygltf::Image& image = model.images[texture.source];
+
+    TextureData texData;
+    texData.pixels = image.image;
+    texData.width = image.width;
+    texData.height = image.height;
+    texData.channels = image.component;
+    texData.type = texType;
+    modelData.textures.push_back(std::move(texData));
+}
+
+void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& parentTransform, ModelData& modelData)
+{
+    const tinygltf::Node& node = model.nodes[nodeIndex];
+    XMMATRIX nodeTransform = GetNodeTransform(node) * parentTransform;
+
+    // Interleaved vs non interleaved
+    /* Typical buffer view for box.gltf (one per attribute)*/
+   /*
+   * buffer: 0, byteoffset: 0, bytelength: 96      // Positions -> 8 vert * 3 floats * 4 bytes = 96 bytes
+   * buffer: 0, byteoffset: 96, bytelength: 96     // Normals
+   * buffer: 0, byteoffset: 192, bytelength: 64    // Texcoord
+   */
+
+   /* Typical buffer view for boxinterleaved.gltf (single buffer view, all attribute interleaved)*/
+   /*
+   * buffer: 0, byteoffset: 0, bytelength: 256, bytestride: 32
+   */
+
+   // Only process if mesh preset (ignore camera node for now)
+    if (node.mesh >= 0)
+    {
+        const auto& mesh = model.meshes[node.mesh];
+        for (const auto& primitive : mesh.primitives)
+        {
+            // Get Position
+            if (primitive.attributes.find("POSITION") != primitive.attributes.end())
+            {
+                const tinygltf::Accessor& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
+                const tinygltf::BufferView& posView = model.bufferViews[posAccessor.bufferView];
+                const tinygltf::Buffer& posBuffer = model.buffers[posView.buffer];
+
+                const unsigned char* bufferData = &posBuffer.data[posView.byteOffset + posAccessor.byteOffset];
+                size_t byteStride = posView.byteStride ? posView.byteStride : sizeof(float) * 3;    // Handle interleaved or non-interleaved
+                modelData.vertices.resize(posAccessor.count);
+                for (size_t i = 0; i < posAccessor.count; ++i)
+                {
+                    const float* postData = reinterpret_cast<const float*>(bufferData + i * byteStride);
+                    XMVECTOR pos = XMVectorSet(postData[0], postData[1], postData[2], 1.f);
+                    pos = XMVector3Transform(pos, nodeTransform);
+                    XMStoreFloat3(&modelData.vertices[i].Position, pos);
+                }
+            }
+
+            // Get Normal
+            if (primitive.attributes.find("NORMAL") != primitive.attributes.end())
+            {
+                const tinygltf::Accessor& normAccessor = model.accessors[primitive.attributes.at("NORMAL")];
+                const tinygltf::BufferView& normView = model.bufferViews[normAccessor.bufferView];
+                const tinygltf::Buffer& normBuffer = model.buffers[normView.buffer];
+
+                const unsigned char* bufferData = &normBuffer.data[normView.byteOffset + normAccessor.byteOffset];
+                size_t byteStride = normView.byteStride ? normView.byteStride : sizeof(float) * 3;
+
+                assert(normAccessor.count == modelData.vertices.size());
+                for (size_t i = 0; i < normAccessor.count; ++i)
+                {
+                    const float* normData = reinterpret_cast<const float*>(bufferData + i * byteStride);
+                    XMVECTOR norm = XMVectorSet(normData[0], normData[1], normData[2], 0.f);
+                    norm = XMVector3TransformNormal(norm, nodeTransform);
+                    XMStoreFloat3(&modelData.vertices[i].Normal, norm);
+                }
+            }
+
+            // Get texture coordinates
+            if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end())
+            {
+                const tinygltf::Accessor& uvAccessor = model.accessors[primitive.attributes.at("TEXCOORD_0")];
+                const tinygltf::BufferView& uvView = model.bufferViews[uvAccessor.bufferView];
+                const tinygltf::Buffer& uvBuffer = model.buffers[uvView.buffer];
+
+                const unsigned char* bufferData = &uvBuffer.data[uvView.byteOffset + uvAccessor.byteOffset];
+                size_t byteStride = uvView.byteStride ? uvView.byteStride : sizeof(float) * 2;
+
+                assert(uvAccessor.count == modelData.vertices.size());
+                for (size_t i = 0; i < uvAccessor.count; ++i)
+                {
+                    const float* uvData = reinterpret_cast<const float*>(bufferData + i * byteStride);
+                    modelData.vertices[i].Uv = XMFLOAT2(uvData[0], uvData[1]);
+                }
+            }
+            // Get tangent
+            if (primitive.attributes.find("TANGENT") != primitive.attributes.end())
+            {
+                modelData.material.useTangent = 1;
+
+                const tinygltf::Accessor& tangentAccessor = model.accessors[primitive.attributes.at("TANGENT")];
+                const tinygltf::BufferView& tangentView = model.bufferViews[tangentAccessor.bufferView];
+                const tinygltf::Buffer& tangentBuffer = model.buffers[tangentView.buffer];
+
+                const unsigned char* bufferData = &tangentBuffer.data[tangentView.byteOffset + tangentAccessor.byteOffset];
+                size_t byteStride = tangentView.byteStride ? tangentView.byteStride : sizeof(float) * 4;
+
+                assert(tangentAccessor.count == modelData.vertices.size());
+                for (size_t i = 0; i < tangentAccessor.count; ++i)
+                {
+                    const float* tangentData = reinterpret_cast<const float*>(bufferData + i * byteStride);
+                    XMVECTOR tangent = XMVectorSet(tangentData[0], tangentData[1], tangentData[2], 0.f);
+                    tangent = XMVector3TransformNormal(tangent, nodeTransform);
+                    XMFLOAT3 transformedTangent;
+                    XMStoreFloat3(&transformedTangent, tangent);
+                    modelData.vertices[i].Tangent = XMFLOAT4(transformedTangent.x, transformedTangent.y, transformedTangent.z, tangentData[3]);
+                }
+            }
+
+            // Get vertex color
+            if (primitive.attributes.find("COLOR_0") != primitive.attributes.end())
+            {
+                modelData.material.useVertexColor = 1;
+
+                const tinygltf::Accessor& colorAccessor = model.accessors[primitive.attributes.at("COLOR_0")];
+                const tinygltf::BufferView& colorView = model.bufferViews[colorAccessor.bufferView];
+                const tinygltf::Buffer& colorBuffer = model.buffers[colorView.buffer];
+
+                const unsigned char* bufferData = &colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset];
+                size_t byteStride = colorView.byteStride ? colorView.byteStride : sizeof(float) * 4;
+
+                assert(colorAccessor.count == modelData.vertices.size());
+                for (size_t i = 0; i < colorAccessor.count; ++i)
+                {
+                    const float* colorData = reinterpret_cast<const float*>(bufferData + i * byteStride);
+                    modelData.vertices[i].Color = XMFLOAT4(colorData[0], colorData[1], colorData[2], colorData[3]);
+                }
+            }
+
+            // Get indices
+            if (primitive.indices >= 0)
+            {
+                const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
+                const tinygltf::BufferView& indexView = model.bufferViews[indexAccessor.bufferView];
+                const tinygltf::Buffer& indexBuffer = model.buffers[indexView.buffer];
+
+                const unsigned char* bufferData = &indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset];
+                modelData.indices.resize(indexAccessor.count);
+
+                if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
+                {
+                    const uint16_t* indexData = reinterpret_cast<const uint16_t*>(bufferData);
+                    for (size_t i = 0; i < indexAccessor.count; ++i) {
+                        modelData.indices[i] = static_cast<uint32_t>(indexData[i]);
+                    }
+                }
+                else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT)
+                {
+                    const uint32_t* indexData = reinterpret_cast<const uint32_t*>(bufferData);
+                    for (size_t i = 0; i < indexAccessor.count; ++i) {
+                        modelData.indices[i] = indexData[i];
+                    }
+                }
+            }
+
+            // Get material
+            if (primitive.material >= 0)
+            {
+                const auto& material = model.materials[primitive.material];
+
+                // So far only use "pbr metallic-roughness"
+                const auto& pbr = material.pbrMetallicRoughness;
+
+                modelData.material.metallicFactor = static_cast<float>(pbr.metallicFactor);
+                modelData.material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
+
+                // Load base color
+                if (pbr.baseColorTexture.index >= 0)
+                {
+                    modelData.material.hasAlbedoMap = 1;
+                    LoadTexture(model, pbr.baseColorTexture.index, TextureType::Albedo, modelData);
+                }
+                // Load material roughness texture
+                if (pbr.metallicRoughnessTexture.index >= 0)
+                {
+                    modelData.material.hasMetallicRoughnessMap = 1;
+                    LoadTexture(model, pbr.metallicRoughnessTexture.index, TextureType::MetallicRoughness, modelData);
+                }
+                // Load normal
+                if (material.normalTexture.index >= 0)
+                {
+                    modelData.material.hasNormalMap = 1;
+                    LoadTexture(model, material.normalTexture.index, TextureType::Normal, modelData);
+                }
+            }
+        }
+    }
+    
+    // Recursive process children
+    for (int childIndex : node.children)
+    {
+        ProcessNode(model, childIndex, nodeTransform, modelData);
+    }
+}
+
 HRESULT Model::LoadFromFile(const std::string& filePath)
 {
     tinygltf::Model model;
@@ -71,203 +327,13 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
     m_model.indices.clear();
     m_model.textures.clear();
 
-    /* Typical buffer view for box.gltf (one per attribute)*/
-    /*
-    * buffer: 0, byteoffset: 0, bytelength: 96      // Positions -> 8 vert * 3 floats * 4 bytes = 96 bytes
-    * buffer: 0, byteoffset: 96, bytelength: 96     // Normals
-    * buffer: 0, byteoffset: 192, bytelength: 64    // Texcoord
-    */
-
-    /* Typical buffer view for boxinterleaved.gltf (single buffer view, all attribute interleaved)*/
-    /*
-    * buffer: 0, byteoffset: 0, bytelength: 256, bytestride: 32
-    */
-    // Assume the first mesh in the first scene
-    const auto& mesh = model.meshes[0];
-    const auto& primitive = mesh.primitives[0];
-
-    // Get vertex positions
-    const tinygltf::Accessor& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
-    const tinygltf::BufferView& posView = model.bufferViews[posAccessor.bufferView];
-    const tinygltf::Buffer& posBuffer = model.buffers[posView.buffer];
-
-    // Handle interleaved or non-interleaved
+    // start with scene root nodes
+    const auto& scene = model.scenes[model.defaultScene >= 0 ? model.defaultScene : 0];
+    XMMATRIX identity = XMMatrixIdentity();
+    for (int nodeIndex : scene.nodes)
     {
-        const unsigned char* bufferData = &posBuffer.data[posView.byteOffset + posAccessor.byteOffset];
-        size_t byteStride = posView.byteStride ? posView.byteStride : sizeof(float) * 3;
-        m_model.vertices.resize(posAccessor.count);
-
-        for (size_t i = 0; i < posAccessor.count; ++i)
-        {
-            const float* postData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-            m_model.vertices[i].Position = DirectX::XMFLOAT3(postData[0], postData[1], postData[2]);
-            m_model.vertices[i].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f); // Default white
-        }
+        ProcessNode(model, nodeIndex, identity, m_model);
     }
-
-    // Get normal
-    if (primitive.attributes.find("NORMAL") != primitive.attributes.end())
-    {
-        const tinygltf::Accessor& normAccessor = model.accessors[primitive.attributes.at("NORMAL")];
-        const tinygltf::BufferView& normView = model.bufferViews[normAccessor.bufferView];
-        const tinygltf::Buffer& normBuffer = model.buffers[normView.buffer];
-
-        const unsigned char* bufferData = &normBuffer.data[normView.byteOffset + normAccessor.byteOffset];
-        size_t byteStride = normView.byteStride ? normView.byteStride : sizeof(float) * 3;
-        
-        assert(normAccessor.count == m_model.vertices.size());
-        for (size_t i = 0; i < normAccessor.count; ++i)
-        {
-            const float* normData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-            m_model.vertices[i].Normal = DirectX::XMFLOAT3(normData[0], normData[1], normData[2]);
-        }
-    }
-    
-    // Get texture coordinates
-    if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end())
-    {
-        const tinygltf::Accessor& uvAccessor = model.accessors[primitive.attributes.at("TEXCOORD_0")];
-        const tinygltf::BufferView& uvView = model.bufferViews[uvAccessor.bufferView];
-        const tinygltf::Buffer& uvBuffer = model.buffers[uvView.buffer];
-
-        const unsigned char* bufferData = &uvBuffer.data[uvView.byteOffset + uvAccessor.byteOffset];
-        size_t byteStride = uvView.byteStride ? uvView.byteStride : sizeof(float) * 2;
-
-        assert(uvAccessor.count == m_model.vertices.size());
-        for (size_t i = 0; i < uvAccessor.count; ++i)
-        {
-            const float* uvData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-            m_model.vertices[i].Uv = DirectX::XMFLOAT2(uvData[0], uvData[1]);
-        }
-    }
-
-    // Get vertex color
-    if (primitive.attributes.find("COLOR_0") != primitive.attributes.end())
-    {
-        m_model.material.useVertexColor = 1;
-
-        const tinygltf::Accessor& colorAccessor = model.accessors[primitive.attributes.at("COLOR_0")];
-        const tinygltf::BufferView& colorView = model.bufferViews[colorAccessor.bufferView];
-        const tinygltf::Buffer& colorBuffer = model.buffers[colorView.buffer];
-
-        const unsigned char* bufferData = &colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset];
-        size_t byteStride = colorView.byteStride ? colorView.byteStride : sizeof(float) * 4;
-
-        assert(colorAccessor.count == m_model.vertices.size());
-        for (size_t i = 0; i < colorAccessor.count; ++i)
-        {
-            const float* colorData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-            m_model.vertices[i].Color = DirectX::XMFLOAT4(colorData[0], colorData[1], colorData[2], colorData[3]);
-        }
-    }
-
-    // Get tangent
-    if (primitive.attributes.find("TANGENT") != primitive.attributes.end())
-    {
-        m_model.material.useTangent = 1;
-
-        const tinygltf::Accessor& tangentAccessor = model.accessors[primitive.attributes.at("TANGENT")];
-        const tinygltf::BufferView& tangentView = model.bufferViews[tangentAccessor.bufferView];
-        const tinygltf::Buffer& tangentBuffer = model.buffers[tangentView.buffer];
-
-        const unsigned char* bufferData = &tangentBuffer.data[tangentView.byteOffset + tangentAccessor.byteOffset];
-        size_t byteStride = tangentView.byteStride ? tangentView.byteStride : sizeof(float) * 4;
-
-        assert(tangentAccessor.count == m_model.vertices.size());
-        for (size_t i = 0; i < tangentAccessor.count; ++i)
-        {
-            const float* tangentData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-            m_model.vertices[i].Tangent = DirectX::XMFLOAT4(tangentData[0], tangentData[1], tangentData[2], tangentData[3]);
-        }
-    }
-
-    // Get indices
-    const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
-    const tinygltf::BufferView& indexView = model.bufferViews[indexAccessor.bufferView];
-    const tinygltf::Buffer& indexBuffer = model.buffers[indexView.buffer];
-
-    // Indices are non interlace so stride is component size
-    {
-        const unsigned char* bufferData = &indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset];
-        m_model.indices.resize(indexAccessor.count);
-
-        if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
-        {
-            const uint16_t* indexData = reinterpret_cast<const uint16_t*>(bufferData);
-            for (size_t i = 0; i < indexAccessor.count; ++i) {
-                m_model.indices[i] = static_cast<uint32_t>(indexData[i]);
-            }
-        }
-        else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT)
-        {
-            const uint32_t* indexData = reinterpret_cast<const uint32_t*>(bufferData);
-            for (size_t i = 0; i < indexAccessor.count; ++i) {
-                m_model.indices[i] = indexData[i];
-            }
-        }
-    }
-
-    // Extract Material
-    if (primitive.material >= 0)
-    {
-        const auto& material = model.materials[primitive.material];
-
-        // So far only use "pbr metallic-roughness"
-        const auto& pbr = material.pbrMetallicRoughness;
-
-        m_model.material.metallicFactor = static_cast<float>(pbr.metallicFactor);
-        m_model.material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
-
-        // Load base color
-        if (pbr.baseColorTexture.index >= 0)
-        {
-            m_model.material.hasAlbedoMap = 1;
-
-            const tinygltf::Texture& texture = model.textures[pbr.baseColorTexture.index];
-            const tinygltf::Image& image = model.images[texture.source];
-
-            TextureData texData;
-            texData.pixels = image.image;
-            texData.width = image.width;
-            texData.height = image.height;
-            texData.channels = image.component;
-            texData.type = TextureType::Albedo;
-            m_model.textures.push_back(std::move(texData));
-        }
-        // Load material roughness texture
-        if (pbr.metallicRoughnessTexture.index >= 0)
-        {
-            m_model.material.hasMetallicRoughnessMap = 1;
-            
-            const tinygltf::Texture& texture = model.textures[pbr.metallicRoughnessTexture.index];
-            const tinygltf::Image& image = model.images[texture.source];
-
-            TextureData texData;
-            texData.pixels = image.image;
-            texData.width = image.width;
-            texData.height = image.height;
-            texData.channels = image.component;
-            texData.type = TextureType::MetallicRoughness;
-            m_model.textures.push_back(std::move(texData));
-        }
-        // Load normal texture
-        if (material.normalTexture.index >= 0)
-        {
-            m_model.material.hasNormalMap = 1;
-
-            const tinygltf::Texture& texture = model.textures[material.normalTexture.index];
-            const tinygltf::Image& image = model.images[texture.source];
-
-            TextureData texData;
-            texData.pixels = image.image;
-            texData.width = image.width;
-            texData.height = image.height;
-            texData.channels = image.component;
-            texData.type = TextureType::Normal;
-            m_model.textures.push_back(std::move(texData));
-        }
-    }
-
 	return S_OK;
 }
 
