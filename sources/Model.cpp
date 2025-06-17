@@ -7,21 +7,20 @@ using namespace DirectX;
 
 Model::Model()
 {
-    m_vertexBufferView = {};
-    m_indexBufferView = {};
+    
 }
 
 Model::~Model()
 {
     // Unmap vertex + index buffer
-    if (m_vertexBuffer && m_mappedVertexBufferData)
+    /*if (m_vertexBuffer && m_mappedVertexBufferData)
     {
         m_vertexBuffer->Unmap(0, nullptr);
     }
     if (m_indexBuffer && m_mappedIndexBufferData)
     {
         m_indexBuffer->Unmap(0, nullptr);
-    }
+    }*/
 }
 
 //
@@ -123,7 +122,7 @@ void LoadTexture(const tinygltf::Model& model, int texIndex, TextureType texType
 void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& parentTransform, ModelData& modelData)
 {
     const tinygltf::Node& node = model.nodes[nodeIndex];
-    XMMATRIX nodeTransform = GetNodeTransform(node) * parentTransform;
+    XMMATRIX nodeTransform = XMMatrixMultiply(GetNodeTransform(node), parentTransform);
 
     // Interleaved vs non interleaved
     /* Typical buffer view for box.gltf (one per attribute)*/
@@ -142,6 +141,10 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
     if (node.mesh >= 0)
     {
         const auto& mesh = model.meshes[node.mesh];
+        MeshData meshData;
+        // Row-Major vs Colum-Major issue
+        XMStoreFloat4x4(&meshData.transform, XMMatrixTranspose(nodeTransform));
+
         for (const auto& primitive : mesh.primitives)
         {
             // Get Position
@@ -153,13 +156,11 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
 
                 const unsigned char* bufferData = &posBuffer.data[posView.byteOffset + posAccessor.byteOffset];
                 size_t byteStride = posView.byteStride ? posView.byteStride : sizeof(float) * 3;    // Handle interleaved or non-interleaved
-                modelData.vertices.resize(posAccessor.count);
+                meshData.vertices.resize(posAccessor.count);
                 for (size_t i = 0; i < posAccessor.count; ++i)
                 {
                     const float* postData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    XMVECTOR pos = XMVectorSet(postData[0], postData[1], postData[2], 1.f);
-                    pos = XMVector3Transform(pos, nodeTransform);
-                    XMStoreFloat3(&modelData.vertices[i].Position, pos);
+                    meshData.vertices[i].Position = XMFLOAT3(postData[0], postData[1], postData[2]);
                 }
             }
 
@@ -173,13 +174,11 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const unsigned char* bufferData = &normBuffer.data[normView.byteOffset + normAccessor.byteOffset];
                 size_t byteStride = normView.byteStride ? normView.byteStride : sizeof(float) * 3;
 
-                assert(normAccessor.count == modelData.vertices.size());
+                assert(normAccessor.count == meshData.vertices.size());
                 for (size_t i = 0; i < normAccessor.count; ++i)
                 {
                     const float* normData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    XMVECTOR norm = XMVectorSet(normData[0], normData[1], normData[2], 0.f);
-                    norm = XMVector3TransformNormal(norm, nodeTransform);
-                    XMStoreFloat3(&modelData.vertices[i].Normal, norm);
+                    meshData.vertices[i].Normal = XMFLOAT3(normData[0], normData[1], normData[2]);
                 }
             }
 
@@ -193,17 +192,17 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const unsigned char* bufferData = &uvBuffer.data[uvView.byteOffset + uvAccessor.byteOffset];
                 size_t byteStride = uvView.byteStride ? uvView.byteStride : sizeof(float) * 2;
 
-                assert(uvAccessor.count == modelData.vertices.size());
+                assert(uvAccessor.count == meshData.vertices.size());
                 for (size_t i = 0; i < uvAccessor.count; ++i)
                 {
                     const float* uvData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    modelData.vertices[i].Uv = XMFLOAT2(uvData[0], uvData[1]);
+                    meshData.vertices[i].Uv = XMFLOAT2(uvData[0], uvData[1]);
                 }
             }
             // Get tangent
             if (primitive.attributes.find("TANGENT") != primitive.attributes.end())
             {
-                modelData.material.useTangent = 1;
+                modelData.hasTangent = 1;
 
                 const tinygltf::Accessor& tangentAccessor = model.accessors[primitive.attributes.at("TANGENT")];
                 const tinygltf::BufferView& tangentView = model.bufferViews[tangentAccessor.bufferView];
@@ -212,22 +211,18 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const unsigned char* bufferData = &tangentBuffer.data[tangentView.byteOffset + tangentAccessor.byteOffset];
                 size_t byteStride = tangentView.byteStride ? tangentView.byteStride : sizeof(float) * 4;
 
-                assert(tangentAccessor.count == modelData.vertices.size());
+                assert(tangentAccessor.count == meshData.vertices.size());
                 for (size_t i = 0; i < tangentAccessor.count; ++i)
                 {
                     const float* tangentData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    XMVECTOR tangent = XMVectorSet(tangentData[0], tangentData[1], tangentData[2], 0.f);
-                    tangent = XMVector3TransformNormal(tangent, nodeTransform);
-                    XMFLOAT3 transformedTangent;
-                    XMStoreFloat3(&transformedTangent, tangent);
-                    modelData.vertices[i].Tangent = XMFLOAT4(transformedTangent.x, transformedTangent.y, transformedTangent.z, tangentData[3]);
+                    meshData.vertices[i].Tangent = XMFLOAT4(tangentData[0], tangentData[1], tangentData[2], tangentData[3]);
                 }
             }
 
             // Get vertex color
             if (primitive.attributes.find("COLOR_0") != primitive.attributes.end())
             {
-                modelData.material.useVertexColor = 1;
+                modelData.hasVertexColor = 1;
 
                 const tinygltf::Accessor& colorAccessor = model.accessors[primitive.attributes.at("COLOR_0")];
                 const tinygltf::BufferView& colorView = model.bufferViews[colorAccessor.bufferView];
@@ -236,11 +231,11 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const unsigned char* bufferData = &colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset];
                 size_t byteStride = colorView.byteStride ? colorView.byteStride : sizeof(float) * 4;
 
-                assert(colorAccessor.count == modelData.vertices.size());
+                assert(colorAccessor.count == meshData.vertices.size());
                 for (size_t i = 0; i < colorAccessor.count; ++i)
                 {
                     const float* colorData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    modelData.vertices[i].Color = XMFLOAT4(colorData[0], colorData[1], colorData[2], colorData[3]);
+                    meshData.vertices[i].Color = XMFLOAT4(colorData[0], colorData[1], colorData[2], colorData[3]);
                 }
             }
 
@@ -252,20 +247,20 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const tinygltf::Buffer& indexBuffer = model.buffers[indexView.buffer];
 
                 const unsigned char* bufferData = &indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset];
-                modelData.indices.resize(indexAccessor.count);
+                meshData.indices.resize(indexAccessor.count);
 
                 if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
                 {
                     const uint16_t* indexData = reinterpret_cast<const uint16_t*>(bufferData);
                     for (size_t i = 0; i < indexAccessor.count; ++i) {
-                        modelData.indices[i] = static_cast<uint32_t>(indexData[i]);
+                        meshData.indices[i] = static_cast<uint32_t>(indexData[i]);
                     }
                 }
                 else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT)
                 {
                     const uint32_t* indexData = reinterpret_cast<const uint32_t*>(bufferData);
                     for (size_t i = 0; i < indexAccessor.count; ++i) {
-                        modelData.indices[i] = indexData[i];
+                        meshData.indices[i] = indexData[i];
                     }
                 }
             }
@@ -278,28 +273,30 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 // So far only use "pbr metallic-roughness"
                 const auto& pbr = material.pbrMetallicRoughness;
 
-                modelData.material.metallicFactor = static_cast<float>(pbr.metallicFactor);
-                modelData.material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
+                meshData.material.metallicFactor = static_cast<float>(pbr.metallicFactor);
+                meshData.material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
 
                 // Load base color
                 if (pbr.baseColorTexture.index >= 0)
                 {
-                    modelData.material.hasAlbedoMap = 1;
                     LoadTexture(model, pbr.baseColorTexture.index, TextureType::Albedo, modelData);
+                    meshData.material.albedoTextureIndex = modelData.textures.size() - 1;
                 }
                 // Load material roughness texture
                 if (pbr.metallicRoughnessTexture.index >= 0)
                 {
-                    modelData.material.hasMetallicRoughnessMap = 1;
                     LoadTexture(model, pbr.metallicRoughnessTexture.index, TextureType::MetallicRoughness, modelData);
+                    meshData.material.metallicRoughnessTextureIndex = modelData.textures.size() - 1;
                 }
                 // Load normal
                 if (material.normalTexture.index >= 0)
                 {
-                    modelData.material.hasNormalMap = 1;
                     LoadTexture(model, material.normalTexture.index, TextureType::Normal, modelData);
+                    meshData.material.normalTextureIndex = 1;
                 }
             }
+
+            modelData.meshes.push_back(std::move(meshData));
         }
     }
     
@@ -323,8 +320,7 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
     if (!ret) { return E_FAIL; }
 
     // Clear data
-    m_model.vertices.clear();
-    m_model.indices.clear();
+    m_model.meshes.clear();
     m_model.textures.clear();
 
     // start with scene root nodes
@@ -343,58 +339,93 @@ HRESULT Model::UploadGpuResources(
     ID3D12DescriptorHeap* samplerHeap,	// For sampler
 	ID3D12GraphicsCommandList* cmdList)
 {
-    if (m_model.vertices.empty() || m_model.indices.empty())
+    if (m_model.meshes.empty())
     {
         return E_FAIL;
     }
 
-    // Create vertex buffer (upload heap)
-    UINT vertexBufferSize = static_cast<UINT>(m_model.vertices.size() * sizeof(VertexData));
+    m_meshResources.resize(m_model.meshes.size());
 
-    //Note: using upload heaps to transfer static data like vert buffers is not
-    // recommended. Every time the GPU needs it, the upload heap will be marshalled 
-    // over. Please read up on Default Heap usage. An upload heap is used here for 
-    // code simplicity and because there are very few verts to actually transfer.
-    CheckHRESULT(device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&m_vertexBuffer)));
-
-    // Map and copy vertex data
-    CheckHRESULT(m_vertexBuffer->Map(0, nullptr, &m_mappedVertexBufferData));
-    memcpy(m_mappedVertexBufferData, m_model.vertices.data(), vertexBufferSize);
-
-    // Create vertex buffer view
-    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-    m_vertexBufferView.SizeInBytes = vertexBufferSize;
-    m_vertexBufferView.StrideInBytes = sizeof(VertexData);
-
-    // Create index buffer (upload heap)
-    UINT indexBufferSize = static_cast<UINT>(m_model.indices.size() * sizeof(uint32_t));
-
-    CheckHRESULT(device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&m_indexBuffer)));
-
-    // Map and copy index data
-    CheckHRESULT(m_indexBuffer->Map(0, nullptr, &m_mappedIndexBufferData));
-    memcpy(m_mappedIndexBufferData, m_model.indices.data(), indexBufferSize);
-
-    // Create index buffer view
-    m_indexBufferView.BufferLocation = m_indexBuffer->GetGPUVirtualAddress();
-    m_indexBufferView.SizeInBytes = indexBufferSize;
-    m_indexBufferView.Format = DXGI_FORMAT_R32_UINT;
-
-    // Create buffer for material data
+    for (size_t i = 0; i < m_model.meshes.size(); ++i)
     {
-        const UINT materialBufferSize = (sizeof(MaterialData) + 255) & ~255;  // Align to 256 byte
+        auto& mesh = m_model.meshes[i];
+        auto& resource = m_meshResources[i];
+
+        // Create vertex buffer (upload heap)
+        UINT vertexBufferSize = static_cast<UINT>(mesh.vertices.size() * sizeof(VertexData));
+
+        CheckHRESULT(device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&resource.vertexBuffer)));
+
+        CheckHRESULT(device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&resource.vertexUploadBuffer)));
+
+        void* mappedData;
+        resource.vertexUploadBuffer->Map(0, nullptr, &mappedData);
+        memcpy(mappedData, mesh.vertices.data(), vertexBufferSize);
+        resource.vertexUploadBuffer->Unmap(0, nullptr);
+
+        cmdList->CopyBufferRegion(resource.vertexBuffer.Get(), 0, resource.vertexUploadBuffer.Get(), 0, vertexBufferSize);
+        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            resource.vertexBuffer.Get(), 
+            D3D12_RESOURCE_STATE_COPY_DEST, 
+            D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+        cmdList->ResourceBarrier(1, &barrier);
+
+        resource.vertexBufferView.BufferLocation = resource.vertexBuffer->GetGPUVirtualAddress();
+        resource.vertexBufferView.SizeInBytes = vertexBufferSize;
+        resource.vertexBufferView.StrideInBytes = sizeof(VertexData);
+
+        // Create index buffer (upload heap)
+        UINT indexBufferSize = static_cast<UINT>(mesh.indices.size() * sizeof(uint32_t));
+
+        CheckHRESULT(device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&resource.indexBuffer)));
+
+        CheckHRESULT(device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&resource.indexUploadBuffer)));
+
+        resource.indexUploadBuffer->Map(0, nullptr, &mappedData);
+        memcpy(mappedData, mesh.indices.data(), indexBufferSize);
+        resource.indexUploadBuffer->Unmap(0, nullptr);
+
+        cmdList->CopyBufferRegion(resource.indexBuffer.Get(), 0, resource.indexUploadBuffer.Get(), 0, indexBufferSize);
+        barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            resource.indexBuffer.Get(),
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_INDEX_BUFFER);
+        cmdList->ResourceBarrier(1, &barrier);
+
+        resource.indexBufferView.BufferLocation = resource.indexBuffer->GetGPUVirtualAddress();
+        resource.indexBufferView.SizeInBytes = indexBufferSize;
+        resource.indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+    }
+    
+    // Create buffer for material data (large enough to handle multi meshes)
+    {
+        UINT numMeshes = m_meshResources.size();
+        const UINT materialCBSize = (sizeof(MaterialConstantBuffer) + 255) & ~255;
+        const UINT materialBufferSize = materialCBSize * numMeshes;  // Align to 256 byte
         CheckHRESULT(device->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
@@ -403,21 +434,20 @@ HRESULT Model::UploadGpuResources(
             nullptr,
             IID_PPV_ARGS(&m_materialCB)));
 
-        // buffer view
-        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
-        cbvDesc.BufferLocation = m_materialCB->GetGPUVirtualAddress();
-        cbvDesc.SizeInBytes = materialBufferSize;
+        for (size_t i = 0; i < m_model.meshes.size(); ++i)
+        {
+            auto& resource = m_meshResources[i];
 
-        D3D12_CPU_DESCRIPTOR_HANDLE cpuDescHandle;
-        D3D12_GPU_DESCRIPTOR_HANDLE gpuDescHandle;
-        heapAlloc.Alloc(&cpuDescHandle, &gpuDescHandle);
-        device->CreateConstantBufferView(&cbvDesc, cpuDescHandle);
+            D3D12_CPU_DESCRIPTOR_HANDLE cpuDescHandle;
+            D3D12_GPU_DESCRIPTOR_HANDLE gpuDescHandle;
+            heapAlloc.Alloc(&cpuDescHandle, &gpuDescHandle);
 
-        // Map and initialize constant buffer
-        void* mappedData;
-        CheckHRESULT(m_materialCB->Map(0, nullptr, &mappedData));
-        memcpy(mappedData, &m_model.material, sizeof(MaterialData));
-        m_materialCB->Unmap(0, nullptr);
+            D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+            cbvDesc.BufferLocation = m_materialCB->GetGPUVirtualAddress() + i * materialCBSize;
+            cbvDesc.SizeInBytes = materialCBSize;
+            device->CreateConstantBufferView(&cbvDesc, cpuDescHandle);
+            resource.constantBufferView = gpuDescHandle;
+        }
     }
 
     // Create texture
@@ -480,8 +510,9 @@ HRESULT Model::UploadGpuResources(
         nullSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         nullSrvDesc.Texture2D.MipLevels = 1;
 
+        // TODO: Handle all meshes (for now just take first)
         // Albedo
-        if (m_model.material.hasAlbedoMap)
+        if (m_model.meshes[0].material.albedoTextureIndex >= 0)
         {
             for (auto& textureData : m_model.textures)
             {
@@ -507,7 +538,7 @@ HRESULT Model::UploadGpuResources(
         }
 
         // Mettalic/Roughness
-        if (m_model.material.hasMetallicRoughnessMap)
+        if (m_model.meshes[0].material.metallicRoughnessTextureIndex >= 0)
         {
             for (auto& textureData : m_model.textures)
             {
@@ -533,7 +564,7 @@ HRESULT Model::UploadGpuResources(
         }
 
         // Normal
-        if (m_model.material.hasNormalMap)
+        if (m_model.meshes[0].material.normalTextureIndex >= 0)
         {
             for (auto& textureData : m_model.textures)
             {
@@ -587,12 +618,35 @@ HRESULT Model::UploadGpuResources(
     return S_OK;
 }
 
-HRESULT Model::RenderGpu(ID3D12GraphicsCommandList* cmdList)
+HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList)
 {
-    if (m_model.vertices.empty() || m_model.indices.empty())
+    if (m_model.meshes.empty())
     {
         return E_FAIL;
     }
+
+    void* mappedData;
+    UINT materialCBSize = (sizeof(MaterialConstantBuffer) + 255) & ~255;
+    m_materialCB->Map(0, nullptr, &mappedData);
+    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    {
+        const auto& mesh = m_model.meshes[i];
+        const auto& resource = m_meshResources[i];
+
+        MaterialConstantBuffer materialCB = {};
+        materialCB.useVertexColor = m_model.hasVertexColor ? 1 : 0;
+        materialCB.useTangent = m_model.hasTangent ? 1 : 0;
+        materialCB.metallicFactor = mesh.material.metallicFactor;
+        materialCB.roughnessFactor = mesh.material.roughnessFactor;
+        materialCB.hasAlbedoMap = 0;  // TODO
+        materialCB.hasMetallicRoughnessMap = 0;
+        materialCB.hasNormalMap = 0;
+        materialCB.meshTransform = mesh.transform;
+
+        memcpy(static_cast<char*>(mappedData) + i * materialCBSize, &materialCB, sizeof(MaterialConstantBuffer));
+    }
+    m_materialCB->Unmap(0, nullptr);
+
     // descriptor table
     if (!m_model.textures.empty())
     {
@@ -606,12 +660,20 @@ HRESULT Model::RenderGpu(ID3D12GraphicsCommandList* cmdList)
         auto& samplerData = m_model.samplers[0];
         cmdList->SetGraphicsRootDescriptorTable(1, samplerData.samplerGpuHandle);
     }
-    
-    // Set vertex and index buffers
-    cmdList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
-    cmdList->IASetIndexBuffer(&m_indexBufferView);
-    cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    cmdList->DrawIndexedInstanced(m_model.indices.size(), 1, 0, 0, 0);
+
+    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    {
+        const auto& mesh = m_model.meshes[i];
+        const auto& resource = m_meshResources[i];
+
+        cmdList->SetGraphicsRootDescriptorTable(3, resource.constantBufferView);
+
+        // Set vertex and index buffers
+        cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);
+        cmdList->IASetIndexBuffer(&resource.indexBufferView);
+        cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        cmdList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+    }
 
     return S_OK;
 }

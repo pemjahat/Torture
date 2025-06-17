@@ -43,15 +43,11 @@ struct TextureData
 
 struct MaterialData
 {
-	int useVertexColor = 0;
-	int useTangent = 0;
-	float metallicFactor = 0.f;
+	float metallicFactor = 1.f;
 	float roughnessFactor = 1.f;
-
-	int hasAlbedoMap = 0;
-	int hasMetallicRoughnessMap = 0;
-	int hasNormalMap = 0;
-	float paddedMat;
+	int albedoTextureIndex = -1;
+	int metallicRoughnessTextureIndex = -1;
+	int normalTextureIndex = -1;
 };
 
 struct SamplerData
@@ -65,14 +61,50 @@ struct SamplerData
 	D3D12_GPU_DESCRIPTOR_HANDLE samplerGpuHandle;
 };
 
-// todo: handle model as separate struct
-struct ModelData
+struct MeshData
 {
 	std::vector<VertexData> vertices;
 	std::vector<uint32_t> indices;
+	MaterialData material;
+	DirectX::XMFLOAT4X4 transform;	// Node hierarchy transform
+};
+
+struct ModelData
+{
+	std::vector<MeshData> meshes;
 	std::vector<TextureData> textures;
 	std::vector<SamplerData> samplers;
-	MaterialData material;
+	bool hasVertexColor = false;
+	bool hasTangent = false;
+};
+
+struct MaterialConstantBuffer
+{
+	int useVertexColor = 0;
+	int useTangent = 0;
+	float metallicFactor = 0.f;
+	float roughnessFactor = 1.f;
+
+	int hasAlbedoMap = 0;
+	int hasMetallicRoughnessMap = 0;
+	int hasNormalMap = 0;
+	float paddedMat;
+
+	DirectX::XMFLOAT4X4 meshTransform;
+};
+
+struct MeshResources
+{
+	Microsoft::WRL::ComPtr<ID3D12Resource> vertexBuffer;
+	Microsoft::WRL::ComPtr<ID3D12Resource> indexBuffer;
+
+	Microsoft::WRL::ComPtr<ID3D12Resource> vertexUploadBuffer;
+	Microsoft::WRL::ComPtr<ID3D12Resource> indexUploadBuffer;
+
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
+	D3D12_INDEX_BUFFER_VIEW indexBufferView;
+
+	D3D12_GPU_DESCRIPTOR_HANDLE constantBufferView;
 };
 
 class Model
@@ -84,10 +116,10 @@ public:
 	HRESULT LoadFromFile(const std::string& filePath);
 	HRESULT UploadGpuResources(
 		ID3D12Device* device,
-		DescriptorHeapAllocator& heapAlloc,	// For srv		
+		DescriptorHeapAllocator& heapAlloc,	// For srv	
 		ID3D12DescriptorHeap* samplerHeap,	// For sampler
 		ID3D12GraphicsCommandList* cmdList);
-	HRESULT RenderGpu(ID3D12GraphicsCommandList* cmdList);
+	HRESULT RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList);
 
 private:
 	// Helper
@@ -97,15 +129,7 @@ private:
 	// 
 	ModelData m_model;
 
-	// GPU resources
-	Microsoft::WRL::ComPtr<ID3D12Resource> m_vertexBuffer;
-	Microsoft::WRL::ComPtr<ID3D12Resource> m_indexBuffer;
-	void* m_mappedVertexBufferData;
-	void* m_mappedIndexBufferData;
-
-	// Buffer views
-	D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
-	D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
+	std::vector<MeshResources> m_meshResources;
 
 	ComPtr<ID3D12Resource> m_materialCB;
 	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;	

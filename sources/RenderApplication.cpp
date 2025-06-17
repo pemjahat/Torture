@@ -169,7 +169,7 @@ void RenderApplication::LoadPipeline()
     m_rtvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = SrvHeapSize;
+    srvHeapDesc.NumDescriptors = SrvCbvHeapSize;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     CheckHRESULT(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvDescHeap)));
@@ -213,14 +213,15 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     ImGui::StyleColorsDark();
 
     // Descriptor range
-    CD3DX12_DESCRIPTOR_RANGE1 ranges[3];
+    CD3DX12_DESCRIPTOR_RANGE1 ranges[4];
     // 1 - number of descriptor 
     // 0 - base shader register (start with 0)
     // 0 - register space (for advance scenario)
     // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
     ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);  // Albedo + Normal + MetallicRoughness
     ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0);
-    ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 3, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);    // Scene + Light CB + Material CB
+    ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
+    ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb2)
 
     // Root parameter in root signature
     // Tell GPU how access SRV via descriptor table
@@ -228,10 +229,11 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
 
     // Shared destriptor table between srv + cbv, and visibility all
-    CD3DX12_ROOT_PARAMETER1 rootParameters[3];
+    CD3DX12_ROOT_PARAMETER1 rootParameters[4];
     rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);  // srv
     rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);  // sampler
     rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);    // for vs/ps
+    rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_ALL);
 
     // Remove the shared, since root descriptor table using visiblity = ALL, so Texture SRV need extra flag
     /*CD3DX12_ROOT_PARAMETER1 rootParameters[1];
@@ -275,6 +277,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     ComPtr<ID3DBlob> vertexShader;
     ComPtr<ID3DBlob> pixelShader;
 #ifdef DX12_ENABLE_DEBUG_LAYER
+    //UINT compileFlags = D3DCOMPILE_PACK_MATRIX_ROW_MAJOR;
     UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #else
     UINT compileFlags = 0;
@@ -426,7 +429,8 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     //std::wstring gltfPath = GetAssetFullPath("content/Box With Spaces.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/BoxVertexColors.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/Cube.gltf");
-    std::wstring gltfPath = GetAssetFullPath("content/Duck.gltf");
+    //std::wstring gltfPath = GetAssetFullPath("content/Duck.gltf");
+    std::wstring gltfPath = GetAssetFullPath("content/2CylinderEngine.gltf");
         
     m_model.LoadFromFile(WStringToString(gltfPath));
     m_model.UploadGpuResources(m_d3dDevice.Get(), g_descHeapAllocator, m_samplerDescHeap.Get(), m_commandList.Get());
@@ -478,6 +482,9 @@ void RenderApplication::OnUpdate()
     XMMATRIX view = m_camera.GetViewMatrix();
     XMMATRIX proj = m_camera.GetProjectionMatrix(XM_PI / 3, m_aspectRatio);
 
+    // DirectXMath library is row major matrices
+    // Hlsl by default is column major matrices
+    // Either use row_major explicitly on hlsl, or compile shader with ROW_MAJOR, or use XMMatrixTranspose
     XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
     XMStoreFloat4x4(&m_constantBufferData.WorldView, XMMatrixTranspose(world * view));
     XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));
@@ -622,7 +629,7 @@ void RenderApplication::PopulateCommandList()
     m_commandList->ClearDepthStencilView(m_dsvCpuHandle, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
     m_commandList->ClearRenderTargetView(rtvHandle, clear_color_with_alpha, 0, nullptr);
     
-    m_model.RenderGpu(m_commandList.Get());
+    m_model.RenderGpu(m_d3dDevice.Get(), m_commandList.Get());
 
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), m_commandList.Get());
 

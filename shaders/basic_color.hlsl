@@ -1,4 +1,3 @@
-// basic_color.hlsl
 cbuffer SceneConstantBuffer : register(b0)
 {
     float4x4 World;
@@ -26,6 +25,8 @@ cbuffer MaterialData : register(b2)
     int hasMetallicRoughnessMap; // 1 if metallic roughness map available
     int hasNormalMap;               // 1 if normal map availabe
     float paddedMat;
+    
+    float4x4 meshTransform; //Per-mesh transform
 };
 
 struct VSInput
@@ -40,7 +41,7 @@ struct VSInput
 struct PSInput
 {
     float4 position : SV_POSITION;
-    float3 worldPos : POSITION;
+    float4 worldPos : POSITION;
     float3 normal : NORMAL;
     float4 color : COLOR;
     float4 tangent : TANGENT;
@@ -57,12 +58,21 @@ PSInput VSMain(VSInput input)
 {
     PSInput output;
     
-    output.position = mul(float4(input.position, 1.f), WorldViewProj);
-    output.worldPos = input.position;
-    output.normal = input.normal;
-    output.color = input.color;
-    output.tangent = input.tangent;
+    // Apply mesh transform
+    float4 pos = float4(input.position, 1.f);
+    pos = mul(pos, meshTransform);
+    output.worldPos = pos;
+    output.position = mul(pos, WorldViewProj);
+    
+    float4 norm = float4(input.normal, 0.f);
+    output.normal = normalize(mul(norm, World).xyz);
+    
+    float4 tangent = float4(input.tangent.xyz, 0.f);
+    output.tangent = float4(normalize(mul(tangent, World).xyz), input.tangent.w);
+    
     output.uv = input.uv;
+    output.color = input.color;
+    
     return output;
 }
 
@@ -84,8 +94,8 @@ float4 PSMain(PSInput input) : SV_TARGET
     else
     {
         float3 N = normalize(input.normal);
-        float3 dPdx = ddx(input.worldPos);
-        float3 dPdy = ddy(input.worldPos);
+        float3 dPdx = ddx(input.worldPos.xyz);
+        float3 dPdy = ddy(input.worldPos.xyz);
         float2 dUVdx = ddx(input.uv);
         float2 dUVdy = ddy(input.uv);
 
@@ -125,7 +135,8 @@ float4 PSMain(PSInput input) : SV_TARGET
     }
     else
     {
-        albedo = albedoTex.Sample(g_sampler, input.uv).rgb;
+        //albedo = albedoTex.Sample(g_sampler, input.uv).rgb;
+        albedo = float3(1.f, 0.f, 0.f);
     }
     
     //
