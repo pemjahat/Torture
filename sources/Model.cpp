@@ -273,6 +273,14 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 // So far only use "pbr metallic-roughness"
                 const auto& pbr = material.pbrMetallicRoughness;
 
+                if (!pbr.baseColorFactor.empty())
+                {
+                    meshData.material.baseColorFactor = XMFLOAT4(
+                        static_cast<float>(pbr.baseColorFactor[0]),
+                        static_cast<float>(pbr.baseColorFactor[1]),
+                        static_cast<float>(pbr.baseColorFactor[2]),
+                        static_cast<float>(pbr.baseColorFactor[3]));
+                }
                 meshData.material.metallicFactor = static_cast<float>(pbr.metallicFactor);
                 meshData.material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
 
@@ -641,6 +649,7 @@ HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdLis
         materialCB.hasAlbedoMap = 0;  // TODO
         materialCB.hasMetallicRoughnessMap = 0;
         materialCB.hasNormalMap = 0;
+        materialCB.baseColorFactor = mesh.material.baseColorFactor;
         materialCB.meshTransform = mesh.transform;
 
         memcpy(static_cast<char*>(mappedData) + i * materialCBSize, &materialCB, sizeof(MaterialConstantBuffer));

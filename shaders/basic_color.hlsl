@@ -26,6 +26,7 @@ cbuffer MaterialData : register(b2)
     int hasNormalMap;               // 1 if normal map availabe
     float paddedMat;
     
+    float4 baseColorFactor;
     float4x4 meshTransform; //Per-mesh transform
 };
 
@@ -128,15 +129,14 @@ float4 PSMain(PSInput input) : SV_TARGET
     //
     // Albedo
     //
-    float3 albedo;
+    float3 albedo = baseColorFactor.rgb;
     if (useVertexColor)
     {
         albedo = input.color.rgb;
     }
-    else
+    else if (hasAlbedoMap)
     {
-        //albedo = albedoTex.Sample(g_sampler, input.uv).rgb;
-        albedo = float3(1.f, 0.f, 0.f);
+        albedo = albedoTex.Sample(g_sampler, input.uv).rgb * baseColorFactor.rgb;
     }
     
     //

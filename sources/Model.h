@@ -43,6 +43,7 @@ struct TextureData
 
 struct MaterialData
 {
+	DirectX::XMFLOAT4 baseColorFactor = DirectX::XMFLOAT4(1.f, 1.f, 1.f, 1.f);
 	float metallicFactor = 1.f;
 	float roughnessFactor = 1.f;
 	int albedoTextureIndex = -1;
@@ -90,6 +91,7 @@ struct MaterialConstantBuffer
 	int hasNormalMap = 0;
 	float paddedMat;
 
+	DirectX::XMFLOAT4 baseColorFactor;
 	DirectX::XMFLOAT4X4 meshTransform;
 };
 
