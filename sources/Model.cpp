@@ -104,20 +104,17 @@ XMMATRIX GetNodeTransform(const tinygltf::Node& node)
 
     return transform;
 }
-
-void LoadTexture(const tinygltf::Model& model, int texIndex, TextureType texType, ModelData& modelData)
-{
-    const tinygltf::Texture& texture = model.textures[texIndex];
-    const tinygltf::Image& image = model.images[texture.source];
-
-    TextureData texData;
-    texData.pixels = image.image;
-    texData.width = image.width;
-    texData.height = image.height;
-    texData.channels = image.component;
-    texData.type = texType;
-    modelData.textures.push_back(std::move(texData));
-}
+//
+//void LoadTexture(const tinygltf::Model& model, int texIndex, TextureData& textureData)
+//{
+//    const tinygltf::Texture& texture = model.textures[texIndex];
+//    const tinygltf::Image& image = model.images[texture.source];
+//
+//    textureData.pixels = image.image;
+//    textureData.width = image.width;
+//    textureData.height = image.height;
+//    textureData.channels = image.component;
+//}
 
 void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& parentTransform, ModelData& modelData)
 {
@@ -265,49 +262,14 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 }
             }
 
-            // Get material
-            if (primitive.material >= 0)
-            {
-                const auto& material = model.materials[primitive.material];
-
-                // So far only use "pbr metallic-roughness"
-                const auto& pbr = material.pbrMetallicRoughness;
-
-                if (!pbr.baseColorFactor.empty())
-                {
-                    meshData.material.baseColorFactor = XMFLOAT4(
-                        static_cast<float>(pbr.baseColorFactor[0]),
-                        static_cast<float>(pbr.baseColorFactor[1]),
-                        static_cast<float>(pbr.baseColorFactor[2]),
-                        static_cast<float>(pbr.baseColorFactor[3]));
-                }
-                meshData.material.metallicFactor = static_cast<float>(pbr.metallicFactor);
-                meshData.material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
-
-                // Load base color
-                if (pbr.baseColorTexture.index >= 0)
-                {
-                    LoadTexture(model, pbr.baseColorTexture.index, TextureType::Albedo, modelData);
-                    meshData.material.albedoTextureIndex = modelData.textures.size() - 1;
-                }
-                // Load material roughness texture
-                if (pbr.metallicRoughnessTexture.index >= 0)
-                {
-                    LoadTexture(model, pbr.metallicRoughnessTexture.index, TextureType::MetallicRoughness, modelData);
-                    meshData.material.metallicRoughnessTextureIndex = modelData.textures.size() - 1;
-                }
-                // Load normal
-                if (material.normalTexture.index >= 0)
-                {
-                    LoadTexture(model, material.normalTexture.index, TextureType::Normal, modelData);
-                    meshData.material.normalTextureIndex = 1;
-                }
-            }
+            // Get material index
+            meshData.materialIndex = primitive.material;
 
             modelData.meshes.push_back(std::move(meshData));
         }
     }
     
+
     // Recursive process children
     for (int childIndex : node.children)
     {
@@ -315,6 +277,78 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
     }
 }
 
+void ProcessMaterial(const tinygltf::Model& model, ModelData& modelData)
+{
+    for (const tinygltf::Material& mat : model.materials)
+    {
+        const auto& pbr = mat.pbrMetallicRoughness;
+
+        MaterialData material;
+        if (!pbr.baseColorFactor.empty())
+        {
+            material.baseColorFactor = XMFLOAT4(
+                static_cast<float>(pbr.baseColorFactor[0]),
+                static_cast<float>(pbr.baseColorFactor[1]),
+                static_cast<float>(pbr.baseColorFactor[2]),
+                static_cast<float>(pbr.baseColorFactor[3]));
+        }
+        material.metallicFactor = static_cast<float>(pbr.metallicFactor);
+        material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
+        material.albedoTextureIndex = pbr.baseColorTexture.index;
+        material.metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
+        material.normalTextureIndex = mat.normalTexture.index;
+
+        modelData.materials.push_back(std::move(material));
+    }
+
+    for (const tinygltf::Texture& tex : model.textures)
+    {
+        TextureView texView;
+        texView.resourceIndex = tex.source;
+
+        modelData.textures.push_back(std::move(texView));
+    }
+
+    for (const tinygltf::Image& image : model.images)
+    {
+        TextureResource texResource;
+
+        texResource.pixels = image.image;
+        texResource.width = image.width;
+        texResource.height = image.height;
+        texResource.channels = image.component;
+
+        modelData.images.push_back(std::move(texResource));
+    }
+    //// Get material
+    //if (primitive.material >= 0)
+    //{
+    //    const auto& material = model.materials[primitive.material];
+
+    //    // So far only use "pbr metallic-roughness"
+    //    const auto& pbr = material.pbrMetallicRoughness;
+
+    //    // Load base color
+    //    if (pbr.baseColorTexture.index >= 0)
+    //    {
+    //        LoadTexture(model, pbr.baseColorTexture.index, modelData.albedo);
+    //        
+    //    }
+    //    // Load material roughness texture
+    //    if (pbr.metallicRoughnessTexture.index >= 0)
+    //    {
+    //        LoadTexture(model, pbr.metallicRoughnessTexture.index, modelData.metallicRoughness);
+    //        
+    //    }
+    //    // Load normal
+    //    if (material.normalTexture.index >= 0)
+    //    {
+    //        LoadTexture(model, material.normalTexture.index, modelData.normal);
+    //        
+    //    }
+    //}
+
+}
 HRESULT Model::LoadFromFile(const std::string& filePath)
 {
     tinygltf::Model model;
@@ -329,7 +363,7 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
 
     // Clear data
     m_model.meshes.clear();
-    m_model.textures.clear();
+    //m_model.textures.clear();
 
     // start with scene root nodes
     const auto& scene = model.scenes[model.defaultScene >= 0 ? model.defaultScene : 0];
@@ -338,6 +372,10 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
     {
         ProcessNode(model, nodeIndex, identity, m_model);
     }
+
+    // Process material
+    ProcessMaterial(model, m_model);
+
 	return S_OK;
 }
 
@@ -459,15 +497,16 @@ HRESULT Model::UploadGpuResources(
     }
 
     // Create texture
-    if (!m_model.textures.empty())
-    {   
-        for (auto& textureData : m_model.textures)
+    if (!m_model.images.empty())
+    {
+        // Texture resources
+        for (TextureResource& texResource : m_model.images)
         {
             D3D12_RESOURCE_DESC textureDesc = {};
             textureDesc.MipLevels = 1;
             textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            textureDesc.Width = textureData.width;
-            textureDesc.Height = textureData.height;
+            textureDesc.Width = texResource.width;
+            textureDesc.Height = texResource.height;
             textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
             textureDesc.DepthOrArraySize = 1;
             textureDesc.SampleDesc.Count = 1;
@@ -480,10 +519,10 @@ HRESULT Model::UploadGpuResources(
                 &textureDesc,
                 D3D12_RESOURCE_STATE_COPY_DEST,
                 nullptr,
-                IID_PPV_ARGS(&textureData.texture)));
+                IID_PPV_ARGS(&texResource.texture)));
 
             // Staging buffer to upload
-            const UINT64 uploadBufferSize = GetRequiredIntermediateSize(textureData.texture.Get(), 0, 1);
+            const UINT64 uploadBufferSize = GetRequiredIntermediateSize(texResource.texture.Get(), 0, 1);
 
             CheckHRESULT(device->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
@@ -491,18 +530,18 @@ HRESULT Model::UploadGpuResources(
                 &CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
                 D3D12_RESOURCE_STATE_GENERIC_READ,
                 nullptr,
-                IID_PPV_ARGS(&textureData.uploadBuffer)));
+                IID_PPV_ARGS(&texResource.uploadBuffer)));
 
             D3D12_SUBRESOURCE_DATA textureResourceData = {};
-            textureResourceData.pData = &textureData.pixels[0];
-            textureResourceData.RowPitch = textureData.width * sizeof(float);
-            textureResourceData.SlicePitch = textureResourceData.RowPitch * textureData.height;
+            textureResourceData.pData = &texResource.pixels[0];
+            textureResourceData.RowPitch = texResource.width * sizeof(float);
+            textureResourceData.SlicePitch = textureResourceData.RowPitch * texResource.height;
 
-            UpdateSubresources(cmdList, textureData.texture.Get(), textureData.uploadBuffer.Get(), 0, 0, 1, &textureResourceData);
+            UpdateSubresources(cmdList, texResource.texture.Get(), texResource.uploadBuffer.Get(), 0, 0, 1, &textureResourceData);
 
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource = textureData.texture.Get();
+            barrier.Transition.pResource = texResource.texture.Get();
             barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
             barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
             // Need this if descriptor table is shared = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
@@ -510,92 +549,163 @@ HRESULT Model::UploadGpuResources(
             cmdList->ResourceBarrier(1, &barrier);
         }
 
+        // Texture views
+        for (TextureView& texView : m_model.textures)
+        {
+            if (texView.resourceIndex >= 0)
+            {
+                auto& texResource = m_model.images[texView.resourceIndex];
+
+                D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+                srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                srvDesc.Texture2D.MipLevels = 1;
+                heapAlloc.Alloc(&texView.srvTextureCpuHandle, &texView.srvTextureGpuHandle);
+                device->CreateShaderResourceView(texResource.texture.Get(), &srvDesc, texView.srvTextureCpuHandle);
+            }
+        }
+    }
+
+    
+    // Create texture
+    if (!m_model.textures.empty())
+    {   
+        //for (auto& textureData : m_model.textures)
+        //{
+        //    D3D12_RESOURCE_DESC textureDesc = {};
+        //    textureDesc.MipLevels = 1;
+        //    textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        //    textureDesc.Width = textureData.width;
+        //    textureDesc.Height = textureData.height;
+        //    textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        //    textureDesc.DepthOrArraySize = 1;
+        //    textureDesc.SampleDesc.Count = 1;
+        //    textureDesc.SampleDesc.Quality = 0;
+        //    textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+
+        //    CheckHRESULT(device->CreateCommittedResource(
+        //        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+        //        D3D12_HEAP_FLAG_NONE,
+        //        &textureDesc,
+        //        D3D12_RESOURCE_STATE_COPY_DEST,
+        //        nullptr,
+        //        IID_PPV_ARGS(&textureData.texture)));
+
+        //    // Staging buffer to upload
+        //    const UINT64 uploadBufferSize = GetRequiredIntermediateSize(textureData.texture.Get(), 0, 1);
+
+        //    CheckHRESULT(device->CreateCommittedResource(
+        //        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+        //        D3D12_HEAP_FLAG_NONE,
+        //        &CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
+        //        D3D12_RESOURCE_STATE_GENERIC_READ,
+        //        nullptr,
+        //        IID_PPV_ARGS(&textureData.uploadBuffer)));
+
+        //    D3D12_SUBRESOURCE_DATA textureResourceData = {};
+        //    textureResourceData.pData = &textureData.pixels[0];
+        //    textureResourceData.RowPitch = textureData.width * sizeof(float);
+        //    textureResourceData.SlicePitch = textureResourceData.RowPitch * textureData.height;
+
+        //    UpdateSubresources(cmdList, textureData.texture.Get(), textureData.uploadBuffer.Get(), 0, 0, 1, &textureResourceData);
+
+        //    D3D12_RESOURCE_BARRIER barrier = {};
+        //    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        //    barrier.Transition.pResource = textureData.texture.Get();
+        //    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        //    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        //    // Need this if descriptor table is shared = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+        //    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        //    cmdList->ResourceBarrier(1, &barrier);
+        //}
+
         // Order matter for SRV (Albedo : t0, Metallic: t1, Normal: t2)
         // Null srv so we fix t0, t1, t2 orders
-        D3D12_SHADER_RESOURCE_VIEW_DESC nullSrvDesc = {};
-        nullSrvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        nullSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        nullSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        nullSrvDesc.Texture2D.MipLevels = 1;
+        //D3D12_SHADER_RESOURCE_VIEW_DESC nullSrvDesc = {};
+        //nullSrvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        //nullSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        //nullSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        //nullSrvDesc.Texture2D.MipLevels = 1;
 
-        // TODO: Handle all meshes (for now just take first)
-        // Albedo
-        if (m_model.meshes[0].material.albedoTextureIndex >= 0)
-        {
-            for (auto& textureData : m_model.textures)
-            {
-                if (textureData.type == TextureType::Albedo)
-                {
-                    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-                    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-                    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-                    srvDesc.Texture2D.MipLevels = 1;
-                    heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
-                    device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
-                    break;  // Only 1 type per model
-                }
-            }
-        }
-        else
-        {
-            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
-            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
-            heapAlloc.Alloc(&cpuHandle, &gpuHandle);
-            device->CreateShaderResourceView(nullptr, &nullSrvDesc, cpuHandle);
-        }
+        //// TODO: Handle all meshes (for now just take first)
+        //// Albedo
+        //if (m_model.meshes[0].material.albedoTextureIndex >= 0)
+        //{
+        //    for (auto& textureData : m_model.textures)
+        //    {
+        //        if (textureData.type == TextureType::Albedo)
+        //        {
+        //            D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        //            srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        //            srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        //            srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        //            srvDesc.Texture2D.MipLevels = 1;
+        //            heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
+        //            device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
+        //            break;  // Only 1 type per model
+        //        }
+        //    }
+        //}
+        //else
+        //{
+        //    D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
+        //    D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
+        //    heapAlloc.Alloc(&cpuHandle, &gpuHandle);
+        //    device->CreateShaderResourceView(nullptr, &nullSrvDesc, cpuHandle);
+        //}
 
-        // Mettalic/Roughness
-        if (m_model.meshes[0].material.metallicRoughnessTextureIndex >= 0)
-        {
-            for (auto& textureData : m_model.textures)
-            {
-                if (textureData.type == TextureType::MetallicRoughness)
-                {
-                    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-                    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-                    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-                    srvDesc.Texture2D.MipLevels = 1;
-                    heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
-                    device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
-                    break;  // Only 1 type per model
-                }
-            }
-        }
-        else
-        {
-            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
-            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
-            heapAlloc.Alloc(&cpuHandle, &gpuHandle);
-            device->CreateShaderResourceView(nullptr, &nullSrvDesc, cpuHandle);
-        }
+        //// Mettalic/Roughness
+        //if (m_model.meshes[0].material.metallicRoughnessTextureIndex >= 0)
+        //{
+        //    for (auto& textureData : m_model.textures)
+        //    {
+        //        if (textureData.type == TextureType::MetallicRoughness)
+        //        {
+        //            D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        //            srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        //            srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        //            srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        //            srvDesc.Texture2D.MipLevels = 1;
+        //            heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
+        //            device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
+        //            break;  // Only 1 type per model
+        //        }
+        //    }
+        //}
+        //else
+        //{
+        //    D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
+        //    D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
+        //    heapAlloc.Alloc(&cpuHandle, &gpuHandle);
+        //    device->CreateShaderResourceView(nullptr, &nullSrvDesc, cpuHandle);
+        //}
 
-        // Normal
-        if (m_model.meshes[0].material.normalTextureIndex >= 0)
-        {
-            for (auto& textureData : m_model.textures)
-            {
-                if (textureData.type == TextureType::Normal)
-                {
-                    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-                    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-                    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-                    srvDesc.Texture2D.MipLevels = 1;
-                    heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
-                    device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
-                    break;  // Only 1 type per model
-                }
-            }
-        }
-        else
-        {
-            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
-            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
-            heapAlloc.Alloc(&cpuHandle, &gpuHandle);
-            device->CreateShaderResourceView(nullptr, &nullSrvDesc, cpuHandle);
-        }
+        //// Normal
+        //if (m_model.meshes[0].material.normalTextureIndex >= 0)
+        //{
+        //    for (auto& textureData : m_model.textures)
+        //    {
+        //        if (textureData.type == TextureType::Normal)
+        //        {
+        //            D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        //            srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        //            srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        //            srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        //            srvDesc.Texture2D.MipLevels = 1;
+        //            heapAlloc.Alloc(&textureData.srvTextureCpuHandle, &textureData.srvTextureGpuHandle);
+        //            device->CreateShaderResourceView(textureData.texture.Get(), &srvDesc, textureData.srvTextureCpuHandle);
+        //            break;  // Only 1 type per model
+        //        }
+        //    }
+        //}
+        //else
+        //{
+        //    D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
+        //    D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
+        //    heapAlloc.Alloc(&cpuHandle, &gpuHandle);
+        //    device->CreateShaderResourceView(nullptr, &nullSrvDesc, cpuHandle);
+        //}
     }
 
     // Create sampler (create dummy if it's empty)
@@ -642,27 +752,32 @@ HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdLis
         const auto& resource = m_meshResources[i];
 
         MaterialConstantBuffer materialCB = {};
+        materialCB.meshTransform = mesh.transform;
         materialCB.useVertexColor = m_model.hasVertexColor ? 1 : 0;
         materialCB.useTangent = m_model.hasTangent ? 1 : 0;
-        materialCB.metallicFactor = mesh.material.metallicFactor;
-        materialCB.roughnessFactor = mesh.material.roughnessFactor;
-        materialCB.hasAlbedoMap = 0;  // TODO
-        materialCB.hasMetallicRoughnessMap = 0;
-        materialCB.hasNormalMap = 0;
-        materialCB.baseColorFactor = mesh.material.baseColorFactor;
-        materialCB.meshTransform = mesh.transform;
+
+        // Find material
+        const auto& material = m_model.materials[mesh.materialIndex];
+
+        materialCB.metallicFactor = material.metallicFactor;
+        materialCB.roughnessFactor = material.roughnessFactor;
+        materialCB.hasAlbedoMap = (material.albedoTextureIndex >= 0) ? 1 : 0;
+        materialCB.hasMetallicRoughnessMap = (material.metallicRoughnessTextureIndex >= 0) ? 1 : 0;
+        materialCB.hasNormalMap = (material.normalTextureIndex >= 0) ? 1 : 0;
+        materialCB.baseColorFactor = material.baseColorFactor;
 
         memcpy(static_cast<char*>(mappedData) + i * materialCBSize, &materialCB, sizeof(MaterialConstantBuffer));
     }
     m_materialCB->Unmap(0, nullptr);
 
     // descriptor table
-    if (!m_model.textures.empty())
-    {
-        // take the first one for now
-        auto& textureData = m_model.textures[0];
-        cmdList->SetGraphicsRootDescriptorTable(0, textureData.srvTextureGpuHandle);
-    }
+    //if (!m_model.textures.empty())
+    //{
+
+    //    // take the first one for now
+    //    auto& textureData = m_model.textures[0];
+    //    cmdList->SetGraphicsRootDescriptorTable(0, textureData.srvTextureGpuHandle);
+    //}
     if (!m_model.samplers.empty())
     {
         // take the first one for now
@@ -675,6 +790,13 @@ HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdLis
         const auto& mesh = m_model.meshes[i];
         const auto& resource = m_meshResources[i];
 
+        // Find material
+        const auto& material = m_model.materials[mesh.materialIndex];
+        if (material.albedoTextureIndex >= 0)
+        {
+            const auto& texView = m_model.textures[material.albedoTextureIndex];
+            cmdList->SetGraphicsRootDescriptorTable(0, texView.srvTextureGpuHandle);
+        }
         cmdList->SetGraphicsRootDescriptorTable(3, resource.constantBufferView);
 
         // Set vertex and index buffers

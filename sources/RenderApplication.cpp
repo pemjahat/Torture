@@ -168,6 +168,7 @@ void RenderApplication::LoadPipeline()
     CheckHRESULT(m_d3dDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvDescHeap)));
     m_rtvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
+    // One for apps, one for Imgui
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
     srvHeapDesc.NumDescriptors = SrvCbvHeapSize;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -218,7 +219,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // 0 - base shader register (start with 0)
     // 0 - register space (for advance scenario)
     // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
-    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);  // Albedo + Normal + MetallicRoughness
+    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Albedo + Normal + MetallicRoughness
     ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0);
     ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
     ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb2)
@@ -430,7 +431,9 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     //std::wstring gltfPath = GetAssetFullPath("content/BoxVertexColors.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/Cube.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/Duck.gltf");
-    std::wstring gltfPath = GetAssetFullPath("content/2CylinderEngine.gltf");
+    //std::wstring gltfPath = GetAssetFullPath("content/2CylinderEngine.gltf");
+    //std::wstring gltfPath = GetAssetFullPath("content/GearboxAssy.gltf");
+    std::wstring gltfPath = GetAssetFullPath("content/CesiumMilkTruck.gltf");
         
     m_model.LoadFromFile(WStringToString(gltfPath));
     m_model.UploadGpuResources(m_d3dDevice.Get(), g_descHeapAllocator, m_samplerDescHeap.Get(), m_commandList.Get());

@@ -19,24 +19,23 @@ struct VertexData
 	DirectX::XMFLOAT2 Uv;
 };
 
-enum class TextureType
-{
-	Albedo,
-	MetallicRoughness,
-	Normal,
-};
-
-struct TextureData
+// Split between texture resource and texture view
+struct TextureResource
 {
 	std::vector<unsigned char> pixels;
 	int width = 0;
 	int height = 0;
 	int channels = 0;	// for RGBA is 4
-	TextureType type = TextureType::Albedo;
 
-	// Resource
 	ComPtr<ID3D12Resource> texture;
-	ComPtr<ID3D12Resource> uploadBuffer;
+	ComPtr<ID3D12Resource> uploadBuffer;	// TODO: No need store this
+};
+
+// TODO: No need to store this, runtime view should be fine
+struct TextureView
+{
+	int resourceIndex = -1;
+	// Resource
 	D3D12_CPU_DESCRIPTOR_HANDLE srvTextureCpuHandle;
 	D3D12_GPU_DESCRIPTOR_HANDLE srvTextureGpuHandle;
 };
@@ -66,15 +65,20 @@ struct MeshData
 {
 	std::vector<VertexData> vertices;
 	std::vector<uint32_t> indices;
-	MaterialData material;
+	int materialIndex = -1;
 	DirectX::XMFLOAT4X4 transform;	// Node hierarchy transform
 };
 
 struct ModelData
 {
 	std::vector<MeshData> meshes;
-	std::vector<TextureData> textures;
 	std::vector<SamplerData> samplers;
+	std::vector<MaterialData> materials;
+	std::vector<TextureView> textures;
+	std::vector<TextureResource> images;
+	//TextureData albedo;
+	//TextureData metallicRoughness;
+	//TextureData normal;
 	bool hasVertexColor = false;
 	bool hasTangent = false;
 };
