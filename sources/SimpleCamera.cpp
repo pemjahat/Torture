@@ -47,9 +47,9 @@ void SimpleCamera::Update(float elapsedSeconds)
 	if (m_keysPressed.d)
 		move.x += 1.f;
 	if (m_keysPressed.w)
-		move.z -= 1.f;
-	if (m_keysPressed.s)
 		move.z += 1.f;
+	if (m_keysPressed.s)
+		move.z -= 1.f;
 
 	if (fabs(move.x) > 0.1 || fabs(move.z) > 0.1)
 	{
@@ -74,17 +74,20 @@ void SimpleCamera::Update(float elapsedSeconds)
 	m_pitch = std::min(m_pitch, (XM_PIDIV4 + XM_1DIVPI));
 	m_pitch = std::max(-(XM_PIDIV4 + XM_1DIVPI), m_pitch);
 
-	// move camera in model space
-	float x = move.x * -cosf(m_yaw) - move.z * sinf(m_yaw);
-	float z = move.x * sinf(m_yaw) - move.z * cosf(m_yaw);
-	m_position.x += x * moveInterval;
-	m_position.z += z * moveInterval;
-
 	// determine look direction
 	float r = cosf(m_pitch);
 	m_lookDirection.x = r * sinf(m_yaw);
 	m_lookDirection.y = sinf(m_pitch);
 	m_lookDirection.z = r * cosf(m_yaw);
+
+	XMVECTOR right = XMVector3Cross(XMLoadFloat3(&m_lookDirection), XMLoadFloat3(&m_upDirection));
+	right = XMVector3Normalize(right);
+
+	// Update camera move based on Look + Right direction
+	XMVECTOR pos = XMLoadFloat3(&m_position);
+	pos += XMLoadFloat3(&m_lookDirection) * move.z * moveInterval;
+	pos += right * move.x * moveInterval;
+	XMStoreFloat3(&m_position, pos);
 }
 
 XMMATRIX SimpleCamera::GetViewMatrix()

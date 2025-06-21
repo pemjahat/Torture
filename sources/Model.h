@@ -15,7 +15,7 @@ struct VertexData
 	DirectX::XMFLOAT3 Position;
 	DirectX::XMFLOAT3 Normal;
 	DirectX::XMFLOAT4 Color;
-	DirectX::XMFLOAT4 Tangent;
+	DirectX::XMFLOAT4 Tangent;	// tangent (x, y, z) and handedness (w)
 	DirectX::XMFLOAT2 Uv;
 };
 
