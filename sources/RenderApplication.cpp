@@ -214,15 +214,18 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     ImGui::StyleColorsDark();
 
     // Descriptor range
-    CD3DX12_DESCRIPTOR_RANGE1 ranges[4];
+    CD3DX12_DESCRIPTOR_RANGE1 ranges[6];
     // 1 - number of descriptor 
     // 0 - base shader register (start with 0)
     // 0 - register space (for advance scenario)
     // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
-    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Albedo + Normal + MetallicRoughness
-    ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0);
-    ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
-    ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb2)
+    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Albedo
+    ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Metallic
+    ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Normal
+
+    ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0); // Sampler
+    ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
+    ranges[5].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb2)
 
     // Root parameter in root signature
     // Tell GPU how access SRV via descriptor table
@@ -230,11 +233,14 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
 
     // Shared destriptor table between srv + cbv, and visibility all
-    CD3DX12_ROOT_PARAMETER1 rootParameters[4];
-    rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);  // srv
-    rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);  // sampler
-    rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);    // for vs/ps
-    rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_ALL);
+    CD3DX12_ROOT_PARAMETER1 rootParameters[6];
+    rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Albedo
+    rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Metallic
+    rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Normal
+
+    rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_PIXEL);  // sampler
+    rootParameters[4].InitAsDescriptorTable(1, &ranges[4], D3D12_SHADER_VISIBILITY_ALL);    // cbv for vs/ps
+    rootParameters[5].InitAsDescriptorTable(1, &ranges[5], D3D12_SHADER_VISIBILITY_ALL);    // cbv material
 
     // Remove the shared, since root descriptor table using visiblity = ALL, so Texture SRV need extra flag
     /*CD3DX12_ROOT_PARAMETER1 rootParameters[1];
@@ -433,7 +439,8 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     //std::wstring gltfPath = GetAssetFullPath("content/Duck.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/2CylinderEngine.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/GearboxAssy.gltf");
-    std::wstring gltfPath = GetAssetFullPath("content/CesiumMilkTruck.gltf");
+    //std::wstring gltfPath = GetAssetFullPath("content/CesiumMilkTruck.gltf");
+    std::wstring gltfPath = GetAssetFullPath("content/Sponza/Sponza.gltf");
         
     m_model.LoadFromFile(WStringToString(gltfPath));
     m_model.UploadGpuResources(m_d3dDevice.Get(), g_descHeapAllocator, m_samplerDescHeap.Get(), m_commandList.Get());
@@ -610,7 +617,7 @@ void RenderApplication::PopulateCommandList()
     //m_commandList->SetGraphicsRootDescriptorTable(0, m_srvDescHeap->GetGPUDescriptorHandleForHeapStart());
     // Remove the shared, since root descriptor table using visiblity = ALL, so Texture SRV need extra flag
     //m_commandList->SetGraphicsRootDescriptorTable(0, m_srvTextureGpuHandle);
-    m_commandList->SetGraphicsRootDescriptorTable(2, m_cbvGpuDescHandle);
+    m_commandList->SetGraphicsRootDescriptorTable(4, m_cbvGpuDescHandle);
     
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
