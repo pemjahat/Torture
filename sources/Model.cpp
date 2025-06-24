@@ -543,7 +543,7 @@ HRESULT Model::UploadGpuResources(
                 TextureResource& texResource = m_model.images[texView.resourceIndex];
                 device->CreateShaderResourceView(texResource.texture.Get(), &srvDesc, texView.srvTextureCpuHandle);
             }
-            else if (material.metallicRoughnessTextureIndex >= 0)
+            if (material.metallicRoughnessTextureIndex >= 0)
             {
                 TextureView& texView = m_model.textures[material.metallicRoughnessTextureIndex];
 
@@ -557,7 +557,7 @@ HRESULT Model::UploadGpuResources(
                 TextureResource& texResource = m_model.images[texView.resourceIndex];
                 device->CreateShaderResourceView(texResource.texture.Get(), &srvDesc, texView.srvTextureCpuHandle);
             }
-            else if (material.normalTextureIndex)
+            if (material.normalTextureIndex >= 0)
             {
                 TextureView& texView = m_model.textures[material.normalTextureIndex];
 
@@ -656,12 +656,12 @@ HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdLis
             const auto& texView = m_model.textures[material.albedoTextureIndex];
             cmdList->SetGraphicsRootDescriptorTable(0, texView.srvTextureGpuHandle);
         }
-        else if (material.metallicRoughnessTextureIndex >= 0)
+        if (material.metallicRoughnessTextureIndex >= 0)
         {
             const auto& texView = m_model.textures[material.metallicRoughnessTextureIndex];
             cmdList->SetGraphicsRootDescriptorTable(1, texView.srvTextureGpuHandle);
         }
-        else if (material.normalTextureIndex >= 0)
+        if (material.normalTextureIndex >= 0)
         {
             const auto& texView = m_model.textures[material.normalTextureIndex];
             cmdList->SetGraphicsRootDescriptorTable(2, texView.srvTextureGpuHandle);
