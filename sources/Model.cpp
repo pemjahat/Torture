@@ -62,35 +62,6 @@ XMMATRIX GetNodeTransform(const tinygltf::Node& node)
 {
     XMMATRIX transform = XMMatrixIdentity();
 
-    // Translation
-    if (node.translation.size() == 3)
-    {
-        transform *= XMMatrixTranslation(
-            static_cast<float>(node.translation[0]),
-            static_cast<float>(node.translation[1]),
-            static_cast<float>(node.translation[2]));
-    }
-
-    // Rotation (quaternion: x, y, z, 0
-    if (node.rotation.size() == 4)
-    {
-        XMVECTOR quat = XMVectorSet(
-            static_cast<float>(node.rotation[0]),
-            static_cast<float>(node.rotation[1]),
-            static_cast<float>(node.rotation[2]),
-            static_cast<float>(node.rotation[3]));
-        transform *= XMMatrixRotationQuaternion(quat);
-    }
-
-    // Scale
-    if (node.scale.size() == 3)
-    {
-        transform *= XMMatrixScaling(
-            static_cast<float>(node.scale[0]),
-            static_cast<float>(node.scale[1]),
-            static_cast<float>(node.scale[2]));
-    }
-
     // Matrix
     if (node.matrix.size() == 16)
     {
@@ -101,20 +72,51 @@ XMMATRIX GetNodeTransform(const tinygltf::Node& node)
         }
         transform = XMLoadFloat4x4(&mat);
     }
+    else
+    {
+        XMVECTOR translation = XMVectorSet(0.f, 0.f, 0.f, 0.f);
+        XMVECTOR rotation = XMVectorSet(0.f, 0.f, 0.f, 1.f);
+        XMVECTOR scale = XMVectorSet(1.f, 1.f, 1.f, 0.f);
+
+        // Translation
+        if (!node.translation.empty())
+        {
+            translation = XMVectorSet(
+                static_cast<float>(node.translation[0]),
+                static_cast<float>(node.translation[1]),
+                static_cast<float>(node.translation[2]),
+                0.f);
+        }
+
+        // Rotation (quaternion: x, y, z, 0
+        if (!node.rotation.empty())
+        {
+            rotation = XMVectorSet(
+                static_cast<float>(node.rotation[0]),
+                static_cast<float>(node.rotation[1]),
+                static_cast<float>(node.rotation[2]),
+                static_cast<float>(node.rotation[3]));
+        }
+
+        // Scale
+        if (!node.scale.empty())
+        {
+            scale = XMVectorSet(
+                static_cast<float>(node.scale[0]),
+                static_cast<float>(node.scale[1]),
+                static_cast<float>(node.scale[2]),
+                0.f);
+        }
+
+        // Compute TRS
+        XMMATRIX tMatrix = XMMatrixTranslationFromVector(translation);
+        XMMATRIX rMatrix = XMMatrixRotationQuaternion(rotation);
+        XMMATRIX sMatrix = XMMatrixScalingFromVector(scale);
+        transform = sMatrix * rMatrix * tMatrix;
+    }
 
     return transform;
 }
-//
-//void LoadTexture(const tinygltf::Model& model, int texIndex, TextureData& textureData)
-//{
-//    const tinygltf::Texture& texture = model.textures[texIndex];
-//    const tinygltf::Image& image = model.images[texture.source];
-//
-//    textureData.pixels = image.image;
-//    textureData.width = image.width;
-//    textureData.height = image.height;
-//    textureData.channels = image.component;
-//}
 
 void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& parentTransform, ModelData& modelData)
 {

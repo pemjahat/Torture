@@ -43,7 +43,7 @@ struct TextureView
 struct MaterialData
 {
 	DirectX::XMFLOAT4 baseColorFactor = DirectX::XMFLOAT4(1.f, 1.f, 1.f, 1.f);
-	float metallicFactor = 1.f;
+	float metallicFactor = 0.f;
 	float roughnessFactor = 1.f;
 	int albedoTextureIndex = -1;
 	int metallicRoughnessTextureIndex = -1;
@@ -76,9 +76,6 @@ struct ModelData
 	std::vector<MaterialData> materials;
 	std::vector<TextureView> textures;
 	std::vector<TextureResource> images;
-	//TextureData albedo;
-	//TextureData metallicRoughness;
-	//TextureData normal;
 	bool hasVertexColor = false;
 	bool hasTangent = false;
 };

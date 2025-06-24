@@ -150,12 +150,12 @@ float4 PSMain(PSInput input) : SV_TARGET
         metallic = matSample.b;
         roughness = matSample.g;
     }
-    float diffuseFactor = 1.f - metallic;
+    //float diffuseFactor = 1.f - metallic;
     
     // Lighting calculation
     float3 lightDir = normalize(-direction);
     float NdotL = max(dot(worldNormal, lightDir), 0.0);
     
-    float3 lighting = albedo * color * intensity * NdotL * diffuseFactor;
+    float3 lighting = albedo * color * intensity * NdotL;
     return float4(lighting, 1.f);
 }

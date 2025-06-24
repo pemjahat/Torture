@@ -39,7 +39,7 @@ public:
 
 private:
     static const UINT FrameCount = 2;
-    static const UINT SrvCbvHeapSize = 256;
+    static const UINT SrvCbvHeapSize = 10000;
 
     struct SceneConstantBuffer
     {
