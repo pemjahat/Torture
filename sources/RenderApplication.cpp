@@ -22,6 +22,39 @@
 
 static DescriptorHeapAllocator  g_descHeapAllocator;
 
+CommandLineArgs ParseCommandLine(int argc, char** argv)
+{
+    CommandLineArgs args;
+    if (argc > 0)
+    {
+        // Store application directory from argv[0]
+        std::filesystem::path exePath(argv[0]);
+        args.exePath = exePath.string();
+    }
+
+    // Parse args start from 1
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string token = argv[i];
+        if (token.find("-resX=") == 0)
+        {
+            args.resX = std::stoi(token.substr(6));
+            if (args.resX <= 0)
+                args.resX = 800;
+        }
+        else if (token.find("-resY=") == 0)
+        {
+            args.resY = std::stoi(token.substr(6));
+            if (args.resY <= 0)
+                args.resY = 600;
+        }
+        else if (token.find("-model=") == 0)
+        {
+            args.modelPath = token.substr(7);
+        }
+    }
+    return args;
+}
 
 // Convert polar (azimuth, elevation) to Cartesian (XMFLOAT3)
 XMFLOAT3 PolarToCartesian(float azimuth, float elevation) {
@@ -37,9 +70,7 @@ XMFLOAT3 PolarToCartesian(float azimuth, float elevation) {
     return dir;
 }
 
-RenderApplication::RenderApplication(UINT Width, UINT Height, const char* argv) :
-    m_width(Width),
-    m_height(Height),
+RenderApplication::RenderApplication(int argc, char** argv) :
     m_cbvDataBegin(nullptr),
     m_lightDataBegin(nullptr),
     m_constantBufferData{},
@@ -47,9 +78,14 @@ RenderApplication::RenderApplication(UINT Width, UINT Height, const char* argv) 
     m_fenceValue{},
     m_moveSpeed(20.f),
     m_azimuth(XM_PI),
-    m_elevation(0.f),
-    m_executablePath(argv)
+    m_elevation(0.f)
 {
+    CommandLineArgs args = ParseCommandLine(argc, argv);
+    m_width = args.resX;
+    m_height = args.resY;
+    m_executablePath = args.exePath;
+    m_modelPath = args.modelPath;
+
     m_aspectRatio = static_cast<float>(m_width) / static_cast<float>(m_height);
 
     m_viewport = { 0.f, 0.f, (float)m_width, (float)m_height, 0.f, 1.f };
@@ -440,7 +476,8 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     //std::wstring gltfPath = GetAssetFullPath("content/2CylinderEngine.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/GearboxAssy.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/CesiumMilkTruck.gltf");
-    std::wstring gltfPath = GetAssetFullPath("content/Sponza/Sponza.gltf");
+    //std::wstring gltfPath = GetAssetFullPath("content/Sponza/Sponza.gltf");
+    std::wstring gltfPath = GetAssetFullPath(m_modelPath);
         
     m_model.LoadFromFile(WStringToString(gltfPath));
     m_model.UploadGpuResources(m_d3dDevice.Get(), g_descHeapAllocator, m_samplerDescHeap.Get(), m_commandList.Get());

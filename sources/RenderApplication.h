@@ -13,11 +13,18 @@
 
 using Microsoft::WRL::ComPtr;
 
+struct CommandLineArgs
+{
+    int resX = 800;
+    int resY = 600;
+    std::string modelPath = "content/Sponza/Sponza.gltf";
+    std::string exePath = "";
+};
 
 class RenderApplication
 {
 public:
-    RenderApplication(UINT width, UINT height, const char* argv);
+    RenderApplication(int argc, char** argv);
 
     void OnInit(SDL_Window* window);
     void OnUpdate();
@@ -112,6 +119,7 @@ private:
 
     // Root assets path. (helper)
     std::string m_executablePath;
+    std::string m_modelPath;
 
     std::wstring GetAssetFullPath(const std::string& relativePath);
 
