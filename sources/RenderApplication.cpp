@@ -10,6 +10,7 @@
 #include <iostream>
 // DX12
 #include "d3dx12.h"
+#include <DirectXCollision.h>
 
 // imgui
 #include <imgui.h>
@@ -524,6 +525,7 @@ void RenderApplication::OnUpdate()
 
     m_camera.SetMoveSpeed(m_moveSpeed);
     m_camera.Update(static_cast<float>(m_timer.GetElapsedSeconds()));
+    //m_frustum = m_camera.GetFrustum(m_aspectRatio, XM_PI / 3, 1.f, 1000.f);
 
     XMMATRIX world = XMMATRIX(g_XMIdentityR0, g_XMIdentityR1, g_XMIdentityR2, g_XMIdentityR3);
     XMMATRIX view = m_camera.GetViewMatrix();
@@ -676,7 +678,9 @@ void RenderApplication::PopulateCommandList()
     m_commandList->ClearDepthStencilView(m_dsvCpuHandle, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
     m_commandList->ClearRenderTargetView(rtvHandle, clear_color_with_alpha, 0, nullptr);
     
-    m_model.RenderGpu(m_d3dDevice.Get(), m_commandList.Get());
+    BoundingFrustum frustum = m_camera.GetFrustum(XM_PI / 3, m_aspectRatio);
+
+    m_model.RenderGpu(m_d3dDevice.Get(), m_commandList.Get(), frustum);
 
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), m_commandList.Get());
 

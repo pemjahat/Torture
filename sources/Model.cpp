@@ -1,5 +1,6 @@
+#define NOMINMAX // Prevent min/max macros
 #include "Model.h"
-
+#include <DirectXCollision.h>
 #include "d3dx12.h"
 #include <tiny_gltf.h>
 
@@ -142,7 +143,8 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
         const auto& mesh = model.meshes[node.mesh];
         MeshData meshData;
         // Row-Major vs Colum-Major issue
-        XMStoreFloat4x4(&meshData.transform, XMMatrixTranspose(nodeTransform));
+        //XMStoreFloat4x4(&meshData.transform, XMMatrixTranspose(nodeTransform));
+        XMStoreFloat4x4(&meshData.transform, nodeTransform);
 
         for (const auto& primitive : mesh.primitives)
         {
@@ -161,6 +163,19 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                     const float* postData = reinterpret_cast<const float*>(bufferData + i * byteStride);
                     meshData.vertices[i].Position = XMFLOAT3(postData[0], postData[1], postData[2]);
                 }
+                
+                // AABB
+                XMFLOAT3 min = XMFLOAT3(
+                    static_cast<float>(posAccessor.minValues[0]),
+                    static_cast<float>(posAccessor.minValues[1]),
+                    static_cast<float>(posAccessor.minValues[2]));
+
+                XMFLOAT3 max = XMFLOAT3(
+                    static_cast<float>(posAccessor.maxValues[0]),
+                    static_cast<float>(posAccessor.maxValues[1]),
+                    static_cast<float>(posAccessor.maxValues[2]));
+
+                BoundingBox::CreateFromPoints(meshData.boundingBox, XMLoadFloat3(&min), XMLoadFloat3(&max));
             }
 
             // Get Normal
@@ -604,7 +619,7 @@ HRESULT Model::UploadGpuResources(
     return S_OK;
 }
 
-HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList)
+HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const BoundingFrustum& frustum)
 {
     if (m_model.meshes.empty())
     {
@@ -620,7 +635,8 @@ HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdLis
         const auto& resource = m_meshResources[i];
 
         MaterialConstantBuffer materialCB = {};
-        materialCB.meshTransform = mesh.transform;
+        // Transpose is for purpose row major(gltf) - column major(directX)
+        XMStoreFloat4x4(&materialCB.meshTransform, XMMatrixTranspose(XMLoadFloat4x4(&mesh.transform)));
         materialCB.useVertexColor = m_model.hasVertexColor ? 1 : 0;
         materialCB.useTangent = m_model.hasTangent ? 1 : 0;
 
@@ -650,6 +666,17 @@ HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdLis
     {
         const auto& mesh = m_model.meshes[i];
         const auto& resource = m_meshResources[i];
+
+        XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
+
+        // transform bounding box to world space
+        BoundingBox worldBox;
+        mesh.boundingBox.Transform(worldBox, world);
+
+        if (frustum.Contains(worldBox) == DISJOINT)
+        {
+            continue;
+        }
 
         // Find material
         const auto& material = m_model.materials[mesh.materialIndex];

@@ -1,3 +1,4 @@
+#define NOMINMAX // Prevent min/max macros
 #include "SimpleCamera.h"
 #include <algorithm>
 
@@ -90,14 +91,28 @@ void SimpleCamera::Update(float elapsedSeconds)
 	XMStoreFloat3(&m_position, pos);
 }
 
-XMMATRIX SimpleCamera::GetViewMatrix()
+XMMATRIX SimpleCamera::GetViewMatrix() const
 {
 	return XMMatrixLookToRH(XMLoadFloat3(&m_position), XMLoadFloat3(&m_lookDirection), XMLoadFloat3(&m_upDirection));
 }
 
-XMMATRIX SimpleCamera::GetProjectionMatrix(float fov, float aspectRatio, float nearPlane, float farPlane)
+XMMATRIX SimpleCamera::GetProjectionMatrix(float fov, float aspectRatio, float nearPlane, float farPlane) const
 {
-	return XMMatrixPerspectiveFovRH(fov, aspectRatio, nearPlane, farPlane);		   
+	return XMMatrixPerspectiveFovRH(fov, aspectRatio, nearPlane, farPlane);
+}
+
+BoundingFrustum SimpleCamera::GetFrustum(float fov, float aspectRatio, float nearPlane, float farPlane) const
+{
+	XMMATRIX proj = GetProjectionMatrix(fov, aspectRatio, nearPlane, farPlane);
+
+	BoundingFrustum frustum(proj, true);
+
+	// Transform frustum to world space (inverse view matrix)
+	XMMATRIX view = GetViewMatrix();
+	XMMATRIX invView = XMMatrixInverse(nullptr, view);
+
+	frustum.Transform(frustum, invView);
+	return frustum;
 }
 
 void SimpleCamera::OnKeyDown(SDL_KeyboardEvent& key)

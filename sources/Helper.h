@@ -3,19 +3,22 @@
 #include <cassert>
 #include <windows.h>
 #include <string>
-
-using Microsoft::WRL::ComPtr;
+#include <wrl/client.h> // For ComPtr
+#include <d3d12.h>
+#include <vector>
 
 struct DescriptorHeapAllocator
 {
-    ComPtr<ID3D12DescriptorHeap> Heap = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> Heap = nullptr;
     D3D12_DESCRIPTOR_HEAP_TYPE  HeapType = D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
     D3D12_CPU_DESCRIPTOR_HANDLE HeapStartCpu;
     D3D12_GPU_DESCRIPTOR_HANDLE HeapStartGpu;
     UINT    HeapHandleIncrement;
     std::vector<int> FreeIndices;
 
-    void Create(ComPtr<ID3D12Device> device, ComPtr<ID3D12DescriptorHeap> heap)
+    void Create(
+        Microsoft::WRL::ComPtr<ID3D12Device> device, 
+        Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap)
     {
         Heap = heap;
         D3D12_DESCRIPTOR_HEAP_DESC desc = heap->GetDesc();

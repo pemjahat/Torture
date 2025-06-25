@@ -106,7 +106,7 @@ private:
 
     // Camera
     StepTimer m_timer;
-    SimpleCamera m_camera;
+    SimpleCamera m_camera;    
     float m_moveSpeed;
 
     // Light
