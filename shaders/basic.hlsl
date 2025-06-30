@@ -1,4 +1,4 @@
-// basic.hlsl
+// basic.hlsl (depth only)
 cbuffer SceneConstantBuffer : register(b0)
 {
     float4x4 World;
@@ -7,33 +7,31 @@ cbuffer SceneConstantBuffer : register(b0)
     float4 padding[4];
 };
 
+cbuffer MaterialData : register(b1)
+{
+    int useVertexColor;
+    int useTangent; //  1 if tangent available, 0 use Mikktspace
+    float metallicFactor;
+    float roughnessFactor;
+    
+    int hasAlbedoMap;
+    int hasMetallicRoughnessMap; // 1 if metallic roughness map available
+    int hasNormalMap; // 1 if normal map availabe
+    float paddedMat;
+    
+    float4 baseColorFactor;
+    float4x4 meshTransform; //Per-mesh transform
+};
+
 struct VSInput
 {
-    float4 position : POSITION;
-    float2 uv : TEXCOORD;
+    float3 position : POSITION;
 };
 
-struct PSInput
+float4 VSMain(VSInput input) : SV_Position
 {
-    float4 position : SV_POSITION;
-    float2 uv : TEXCOORD;
-};
-
-Texture2D g_texture : register(t0);
-SamplerState g_sampler : register(s0);
-
-PSInput VSMain(VSInput input)
-{
-    PSInput output;
-    
-    output.position = mul(float4(input.position.xyz, 1.f), WorldViewProj);
-    //output.position = input.position;
-    output.uv = input.uv;
-    return output;
-}
-
-float4 PSMain(PSInput input) : SV_TARGET
-{
-    //return input.color;
-    return g_texture.Sample(g_sampler, input.uv);
+    float4 pos = float4(input.position.xyz, 1.f);
+    pos = mul(pos, meshTransform);
+    pos = mul(pos, WorldViewProj);
+    return pos;
 }

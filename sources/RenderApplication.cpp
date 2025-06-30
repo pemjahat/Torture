@@ -225,6 +225,12 @@ void RenderApplication::LoadPipeline()
     dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     CheckHRESULT(m_d3dDevice->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvDescHeap)));
 
+    D3D12_DESCRIPTOR_HEAP_DESC depthOnlyHeapDesc = { };
+    depthOnlyHeapDesc.NumDescriptors = 1;
+    depthOnlyHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    depthOnlyHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    CheckHRESULT(m_d3dDevice->CreateDescriptorHeap(&depthOnlyHeapDesc, IID_PPV_ARGS(&m_depthOnlyDescHeap)));
+
     // Create frame resources
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart());
     for (UINT i = 0; i < FrameCount; ++i)
@@ -250,55 +256,6 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // Setup dear imgui
     ImGui::StyleColorsDark();
 
-    // Descriptor range
-    CD3DX12_DESCRIPTOR_RANGE1 ranges[6];
-    // 1 - number of descriptor 
-    // 0 - base shader register (start with 0)
-    // 0 - register space (for advance scenario)
-    // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
-    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Albedo
-    ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Metallic
-    ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Normal
-
-    ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0); // Sampler
-    ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
-    ranges[5].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb2)
-
-    // Root parameter in root signature
-    // Tell GPU how access SRV via descriptor table
-    // 1 - number of descriptor range in table
-    // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
-
-    // Shared destriptor table between srv + cbv, and visibility all
-    CD3DX12_ROOT_PARAMETER1 rootParameters[6];
-    rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Albedo
-    rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Metallic
-    rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Normal
-
-    rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_PIXEL);  // sampler
-    rootParameters[4].InitAsDescriptorTable(1, &ranges[4], D3D12_SHADER_VISIBILITY_ALL);    // cbv for vs/ps
-    rootParameters[5].InitAsDescriptorTable(1, &ranges[5], D3D12_SHADER_VISIBILITY_ALL);    // cbv material
-
-    // Remove the shared, since root descriptor table using visiblity = ALL, so Texture SRV need extra flag
-    /*CD3DX12_ROOT_PARAMETER1 rootParameters[1];
-    rootParameters[0].InitAsDescriptorTable(2, ranges, D3D12_SHADER_VISIBILITY_ALL);    */
-
-    // Texture sampler
-    /*D3D12_STATIC_SAMPLER_DESC sampler = {};
-    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-    sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    sampler.MipLODBias = 0;
-    sampler.MaxAnisotropy = 0;
-    sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-    sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-    sampler.MinLOD = 0.f;
-    sampler.MaxLOD = D3D12_FLOAT32_MAX;
-    sampler.ShaderRegister = 0;
-    sampler.RegisterSpace = 0;
-    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;*/
-
     // Root signature
     // Define descriptor table for SRV, as well as sampler
     // INPUT_ASSEMBLER_INPUT_LAYOUT - using input layout for vertex data (vs with input assembler)
@@ -308,37 +265,54 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
         D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
 
-    CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
-    //rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, rootSignatureFlags);
-    rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
+    // Root signature (base pass)
+    {
+        // Descriptor range
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[6];
+        // 1 - number of descriptor 
+        // 0 - base shader register (start with 0)
+        // 0 - register space (for advance scenario)
+        // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Albedo
+        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Metallic
+        ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Normal
 
-    ComPtr<ID3DBlob> signature;
-    ComPtr<ID3DBlob> error;
-    CheckHRESULT(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_1, &signature, &error));
-    CheckHRESULT(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
+        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0); // Sampler
+        ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
+        ranges[5].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb2)
 
-    // Create pipeline state, compile, load shaders
-    ComPtr<ID3DBlob> vertexShader;
-    ComPtr<ID3DBlob> pixelShader;
+        // Root parameter in root signature
+        // Tell GPU how access SRV via descriptor table
+        // 1 - number of descriptor range in table
+        // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
+
+        // Shared destriptor table between srv + cbv, and visibility all
+        CD3DX12_ROOT_PARAMETER1 rootParameters[6];
+        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Albedo
+        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Metallic
+        rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Normal
+
+        rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_PIXEL);  // sampler
+        rootParameters[4].InitAsDescriptorTable(1, &ranges[4], D3D12_SHADER_VISIBILITY_ALL);    // cbv for vs/ps
+        rootParameters[5].InitAsDescriptorTable(1, &ranges[5], D3D12_SHADER_VISIBILITY_ALL);    // cbv material
+
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        //rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, rootSignatureFlags);
+        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
+
+        ComPtr<ID3DBlob> signature;
+        ComPtr<ID3DBlob> error;
+        CheckHRESULT(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_1, &signature, &error));
+        CheckHRESULT(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
+    }
+    
 #ifdef DX12_ENABLE_DEBUG_LAYER
     //UINT compileFlags = D3DCOMPILE_PACK_MATRIX_ROW_MAJOR;
-    UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+    UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_ENABLE_STRICTNESS;
 #else
     UINT compileFlags = 0;
 #endif
-    CheckHRESULT(D3DCompileFromFile(GetAssetFullPath("shaders/basic_color.hlsl").c_str(), nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
-    CheckHRESULT(D3DCompileFromFile(GetAssetFullPath("shaders/basic_color.hlsl").c_str(), nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
-    
-    D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
-    {
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
-    };
 
-    // Rasterize desc (match with GLTF CCW convention)
     D3D12_RASTERIZER_DESC rasterizerDesc = {};
     rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
     rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
@@ -352,28 +326,87 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     rasterizerDesc.ForcedSampleCount = 0;
     rasterizerDesc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 
-    D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-    depthStencilDesc.DepthEnable = TRUE;
-    depthStencilDesc.StencilEnable = FALSE;
-    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    // Create pipeline state, compile, load shaders (base shader)
+    {
+        ComPtr<ID3DBlob> vertexShader;
+        ComPtr<ID3DBlob> pixelShader;
 
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
-    psoDesc.pRootSignature = m_rootSignature.Get();
-    psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
-    psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
-    psoDesc.RasterizerState = rasterizerDesc; // CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT };
-    psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
-    psoDesc.DepthStencilState = depthStencilDesc;
-    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    psoDesc.SampleMask = UINT_MAX;
-    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    psoDesc.NumRenderTargets = 1;
-    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    psoDesc.SampleDesc.Count = 1;
-    CheckHRESULT(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
+        CheckHRESULT(D3DCompileFromFile(GetAssetFullPath("shaders/basic_color.hlsl").c_str(), nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
+        CheckHRESULT(D3DCompileFromFile(GetAssetFullPath("shaders/basic_color.hlsl").c_str(), nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
 
+        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+        {
+            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+        };
+
+        D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
+        depthStencilDesc.DepthEnable = TRUE;
+        depthStencilDesc.StencilEnable = FALSE;
+        depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+        depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
+        psoDesc.pRootSignature = m_rootSignature.Get();
+        psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
+        psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
+        psoDesc.RasterizerState = rasterizerDesc; // CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT };
+        psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
+        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        psoDesc.NumRenderTargets = 1;
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.SampleDesc.Count = 1;
+        CheckHRESULT(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
+    }
+   
+    // Root signature and Pipeline state (depth only pass)
+    {
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[2];
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0)
+        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb1)
+
+        CD3DX12_ROOT_PARAMETER1 rootParameters[2];
+        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);    // cbv for vs/ps
+        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);    // cbv material
+
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
+
+        ComPtr<ID3DBlob> signature;
+        ComPtr<ID3DBlob> error;
+        CheckHRESULT(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_1, &signature, &error));
+        CheckHRESULT(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_depthOnlyRootSignature)));
+
+        ComPtr<ID3DBlob> vertexShader;
+        CheckHRESULT(D3DCompileFromFile(GetAssetFullPath("shaders/basic.hlsl").c_str(), nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, &error));
+
+        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+        {
+            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        };
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
+        psoDesc.pRootSignature = m_depthOnlyRootSignature.Get();
+        psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
+        psoDesc.RasterizerState = rasterizerDesc;
+        psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
+        psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        psoDesc.NumRenderTargets = 0;
+        psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+        psoDesc.SampleDesc.Count = 1;
+        CheckHRESULT(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_depthOnlyPipelineState)));
+    }
+    
     // Create command list
     CheckHRESULT(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
 
@@ -415,6 +448,25 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
         m_dsvCpuHandle = m_dsvDescHeap->GetCPUDescriptorHandleForHeapStart();
         m_d3dDevice->CreateDepthStencilView(m_depth.Get(), &dsvDesc, m_dsvCpuHandle);
+    }
+
+    // Create depth only pass
+    {
+        D3D12_RESOURCE_DESC depthDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+            DXGI_FORMAT_D32_FLOAT,
+            m_width,
+            m_height,
+            1, 1, 1, 0,
+            D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        D3D12_CLEAR_VALUE depthClear = { DXGI_FORMAT_D32_FLOAT, {1.f, 0} };
+
+        CheckHRESULT(m_d3dDevice->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &depthDesc,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            &depthClear,
+            IID_PPV_ARGS(&m_depthOnlyBuffer)));
     }
 
     // Create constant buffer for scene
@@ -637,58 +689,89 @@ void RenderApplication::PopulateCommandList()
     ImGui::Render();
 
     CheckHRESULT(m_commandAllocator->Reset());
+    CheckHRESULT(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
 
-    CheckHRESULT(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
+    BoundingFrustum frustum = m_camera.GetFrustum(XM_PI / 3, m_aspectRatio);
 
-    m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-
-    // Bind srv descriptor heaps contain texture srv
-    ID3D12DescriptorHeap* ppDescHeaps[] = { m_srvDescHeap.Get(), m_samplerDescHeap.Get()};
-    m_commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
-
-    // For now :
-    // App + IMGUI share the same descriptor heap
-    // App reserve on static slot of heap, while UI build slot of heap dynamically
-    // is fine because UI using different root descriptor table than App descriptor table
-    // They only share descriptor heap
-
-    // Shared descriptor table, pass the first index
-    //m_commandList->SetGraphicsRootDescriptorTable(0, m_srvDescHeap->GetGPUDescriptorHandleForHeapStart());
-    // Remove the shared, since root descriptor table using visiblity = ALL, so Texture SRV need extra flag
-    //m_commandList->SetGraphicsRootDescriptorTable(0, m_srvTextureGpuHandle);
-    m_commandList->SetGraphicsRootDescriptorTable(4, m_cbvGpuDescHandle);
-    
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
-    // Transition back buffer to RENDER_TARGET
-    D3D12_RESOURCE_BARRIER barrier = {};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = m_renderTarget[m_frameIndex].Get();
-    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    m_commandList->ResourceBarrier(1, &barrier);
+    // Depth only pass
+    {
+        m_commandList->SetPipelineState(m_depthOnlyPipelineState.Get());
+        m_commandList->SetGraphicsRootSignature(m_depthOnlyRootSignature.Get());
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
-    m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &m_dsvCpuHandle);
-    
-    //const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-    const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
-    m_commandList->ClearDepthStencilView(m_dsvCpuHandle, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
-    m_commandList->ClearRenderTargetView(rtvHandle, clear_color_with_alpha, 0, nullptr);
-    
-    BoundingFrustum frustum = m_camera.GetFrustum(XM_PI / 3, m_aspectRatio);
+        m_commandList->OMSetRenderTargets(0, nullptr, FALSE, &m_dsvCpuHandle);
+        m_commandList->ClearDepthStencilView(m_dsvCpuHandle, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
 
-    m_model.RenderGpu(m_d3dDevice.Get(), m_commandList.Get(), frustum);
+        // Bind CBV descriptor heap for constant buffer view
+        ID3D12DescriptorHeap* ppDescHeaps[] = { m_srvDescHeap.Get() };
+        m_commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+        m_commandList->SetGraphicsRootDescriptorTable(0, m_cbvGpuDescHandle);
+
+        m_model.RenderDepthOnly(m_d3dDevice.Get(), m_commandList.Get(), frustum);
+    }
+
+    // Main pass
+    {
+        m_commandList->SetPipelineState(m_pipelineState.Get());
+        m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+
+        // Bind srv descriptor heaps contain texture srv
+        ID3D12DescriptorHeap* ppDescHeaps[] = { m_srvDescHeap.Get(), m_samplerDescHeap.Get() };
+        m_commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+
+        // For now :
+        // App + IMGUI share the same descriptor heap
+        // App reserve on static slot of heap, while UI build slot of heap dynamically
+        // is fine because UI using different root descriptor table than App descriptor table
+        // They only share descriptor heap
+
+        // Shared descriptor table, pass the first index
+        //m_commandList->SetGraphicsRootDescriptorTable(0, m_srvDescHeap->GetGPUDescriptorHandleForHeapStart());
+        // Remove the shared, since root descriptor table using visiblity = ALL, so Texture SRV need extra flag
+        //m_commandList->SetGraphicsRootDescriptorTable(0, m_srvTextureGpuHandle);
+        m_commandList->SetGraphicsRootDescriptorTable(4, m_cbvGpuDescHandle);
+
+        // Transition back buffer to RENDER_TARGET
+        D3D12_RESOURCE_BARRIER barriers[2];
+
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_depth.Get(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            D3D12_RESOURCE_STATE_DEPTH_READ);
+
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_renderTarget[m_frameIndex].Get(),
+            D3D12_RESOURCE_STATE_PRESENT,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+        m_commandList->ResourceBarrier(2, barriers);
+
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+        m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &m_dsvCpuHandle);
+
+        const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
+        m_commandList->ClearRenderTargetView(rtvHandle, clear_color_with_alpha, 0, nullptr);
+
+        m_model.RenderBasePass(m_d3dDevice.Get(), m_commandList.Get(), frustum);
+    }
 
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), m_commandList.Get());
 
     // Transition back to PRESENT
-    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-    m_commandList->ResourceBarrier(1, &barrier);
+    D3D12_RESOURCE_BARRIER barriers[2];
+    barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+        m_depth.Get(),
+        D3D12_RESOURCE_STATE_DEPTH_READ,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE);
 
+    barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+        m_renderTarget[m_frameIndex].Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_PRESENT
+    );
+    m_commandList->ResourceBarrier(2, barriers);
+    
     CheckHRESULT(m_commandList->Close());
 }
 

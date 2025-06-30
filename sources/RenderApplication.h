@@ -74,6 +74,7 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_srvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_samplerDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
+    ComPtr<ID3D12DescriptorHeap> m_depthOnlyDescHeap;
 
     D3D12_CPU_DESCRIPTOR_HANDLE m_dsvCpuHandle;
 
@@ -92,6 +93,11 @@ private:
     SceneConstantBuffer m_constantBufferData;    
     UINT8* m_cbvDataBegin;
     UINT8* m_lightDataBegin;
+
+    // Passes resource
+    ComPtr<ID3D12Resource> m_depthOnlyBuffer;
+    ComPtr<ID3D12RootSignature> m_depthOnlyRootSignature;
+    ComPtr<ID3D12PipelineState> m_depthOnlyPipelineState;
 
     // Synchronization
     UINT m_frameIndex;

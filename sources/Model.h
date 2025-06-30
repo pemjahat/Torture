@@ -124,7 +124,9 @@ public:
 		DescriptorHeapAllocator& heapAlloc,	// For srv	
 		ID3D12DescriptorHeap* samplerHeap,	// For sampler
 		ID3D12GraphicsCommandList* cmdList);
-	HRESULT RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const DirectX::BoundingFrustum& frustum);
+
+	HRESULT RenderDepthOnly(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const DirectX::BoundingFrustum& frustum);
+	HRESULT RenderBasePass(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const DirectX::BoundingFrustum& frustum);
 
 private:
 	// Helper

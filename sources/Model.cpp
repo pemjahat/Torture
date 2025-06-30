@@ -619,7 +619,7 @@ HRESULT Model::UploadGpuResources(
     return S_OK;
 }
 
-HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const BoundingFrustum& frustum)
+HRESULT Model::RenderDepthOnly(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const BoundingFrustum& frustum)
 {
     if (m_model.meshes.empty())
     {
@@ -653,6 +653,69 @@ HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdLis
         memcpy(static_cast<char*>(mappedData) + i * materialCBSize, &materialCB, sizeof(MaterialConstantBuffer));
     }
     m_materialCB->Unmap(0, nullptr);
+
+    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    {
+        const auto& mesh = m_model.meshes[i];
+        const auto& resource = m_meshResources[i];
+
+        XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
+
+        // transform bounding box to world space
+        BoundingBox worldBox;
+        mesh.boundingBox.Transform(worldBox, world);
+
+        if (frustum.Contains(worldBox) == DISJOINT)
+        {
+            continue;
+        }
+
+        cmdList->SetGraphicsRootDescriptorTable(1, resource.constantBufferView);
+
+        // Set vertex and index buffers
+        cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);
+        cmdList->IASetIndexBuffer(&resource.indexBufferView);
+        cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        cmdList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+    }
+
+    return S_OK;
+}
+
+HRESULT Model::RenderBasePass(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const BoundingFrustum& frustum)
+{
+    if (m_model.meshes.empty())
+    {
+        return E_FAIL;
+    }
+
+    //void* mappedData;
+    //UINT materialCBSize = (sizeof(MaterialConstantBuffer) + 255) & ~255;
+    //m_materialCB->Map(0, nullptr, &mappedData);
+    //for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    //{
+    //    const auto& mesh = m_model.meshes[i];
+    //    const auto& resource = m_meshResources[i];
+
+    //    MaterialConstantBuffer materialCB = {};
+    //    // Transpose is for purpose row major(gltf) - column major(directX)
+    //    XMStoreFloat4x4(&materialCB.meshTransform, XMMatrixTranspose(XMLoadFloat4x4(&mesh.transform)));
+    //    materialCB.useVertexColor = m_model.hasVertexColor ? 1 : 0;
+    //    materialCB.useTangent = m_model.hasTangent ? 1 : 0;
+
+    //    // Find material
+    //    const auto& material = m_model.materials[mesh.materialIndex];
+
+    //    materialCB.metallicFactor = material.metallicFactor;
+    //    materialCB.roughnessFactor = material.roughnessFactor;
+    //    materialCB.hasAlbedoMap = (material.albedoTextureIndex >= 0) ? 1 : 0;
+    //    materialCB.hasMetallicRoughnessMap = (material.metallicRoughnessTextureIndex >= 0) ? 1 : 0;
+    //    materialCB.hasNormalMap = (material.normalTextureIndex >= 0) ? 1 : 0;
+    //    materialCB.baseColorFactor = material.baseColorFactor;
+
+    //    memcpy(static_cast<char*>(mappedData) + i * materialCBSize, &materialCB, sizeof(MaterialConstantBuffer));
+    //}
+    //m_materialCB->Unmap(0, nullptr);
 
     // descriptor table
     if (!m_model.samplers.empty())
