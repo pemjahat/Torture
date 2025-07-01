@@ -225,12 +225,6 @@ void RenderApplication::LoadPipeline()
     dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     CheckHRESULT(m_d3dDevice->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvDescHeap)));
 
-    D3D12_DESCRIPTOR_HEAP_DESC depthOnlyHeapDesc = { };
-    depthOnlyHeapDesc.NumDescriptors = 1;
-    depthOnlyHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    depthOnlyHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    CheckHRESULT(m_d3dDevice->CreateDescriptorHeap(&depthOnlyHeapDesc, IID_PPV_ARGS(&m_depthOnlyDescHeap)));
-
     // Create frame resources
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart());
     for (UINT i = 0; i < FrameCount; ++i)
@@ -407,6 +401,34 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         CheckHRESULT(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_depthOnlyPipelineState)));
     }
     
+    // Root signature & Pipeline state (for HiZ)
+    {
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[2];
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Input depth (t0)
+        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Output depth (u0)
+
+        CD3DX12_ROOT_PARAMETER1 rootParameters[3];
+        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
+        rootParameters[2].InitAsConstants(5, 0);  // 4 32 bit HiZ Constant Buffer
+
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+
+        ComPtr<ID3DBlob> signature;
+        ComPtr<ID3DBlob> error;
+        CheckHRESULT(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_1, &signature, &error));
+        CheckHRESULT(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_hiZRootSignature)));
+
+        ComPtr<ID3DBlob> computeShader;
+        CheckHRESULT(D3DCompileFromFile(GetAssetFullPath("shaders/hiz.hlsl").c_str(), nullptr, nullptr, "CSMain", "cs_5_0", compileFlags, 0, &computeShader, nullptr));
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_hiZRootSignature.Get();
+        psoDesc.CS = CD3DX12_SHADER_BYTECODE(computeShader.Get());
+        CheckHRESULT(m_d3dDevice->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_hiZPipelineState)));
+    }
+
     // Create command list
     CheckHRESULT(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
 
@@ -450,23 +472,58 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         m_d3dDevice->CreateDepthStencilView(m_depth.Get(), &dsvDesc, m_dsvCpuHandle);
     }
 
-    // Create depth only pass
+    // Create hiz pass
     {
-        D3D12_RESOURCE_DESC depthDesc = CD3DX12_RESOURCE_DESC::Tex2D(
-            DXGI_FORMAT_D32_FLOAT,
+        D3D12_RESOURCE_DESC hizDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+            DXGI_FORMAT_R32_FLOAT,
             m_width,
             m_height,
-            1, 1, 1, 0,
-            D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
-        D3D12_CLEAR_VALUE depthClear = { DXGI_FORMAT_D32_FLOAT, {1.f, 0} };
+            1, 0, 1, 0,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        //hizDesc.MipLevels = static_cast<UINT>(floor(log2(max(m_width, m_height))) + 1);
+        hizDesc.MipLevels = static_cast<UINT>(floor(log2(max(m_width, m_height))));
 
         CheckHRESULT(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
-            &depthDesc,
-            D3D12_RESOURCE_STATE_DEPTH_WRITE,
-            &depthClear,
-            IID_PPV_ARGS(&m_depthOnlyBuffer)));
+            &hizDesc,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            nullptr,
+            IID_PPV_ARGS(&m_hiZBuffer)));
+
+        // Views
+        // SRV for depth
+        D3D12_SHADER_RESOURCE_VIEW_DESC depthSrvDesc = {};
+        depthSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        depthSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+        depthSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        depthSrvDesc.Texture2D.MipLevels = 1;
+        g_descHeapAllocator.Alloc(&m_hiZDepthSrvCpuHandle, &m_hiZDepthSrvGpuHandle);
+        m_d3dDevice->CreateShaderResourceView(m_depth.Get(), &depthSrvDesc, m_hiZDepthSrvCpuHandle);
+
+        // SRV
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = hizDesc.MipLevels;
+        g_descHeapAllocator.Alloc(&m_hiZCpuHandle, &m_hiZGpuHandle);
+        m_d3dDevice->CreateShaderResourceView(m_hiZBuffer.Get(), &srvDesc, m_hiZCpuHandle);
+        m_hiZDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+        // UAV
+        // UAV CpuHandle is start from SRV + DescriptorSize * (MipIndex + 1)
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+        uavDesc.Format = DXGI_FORMAT_R32_FLOAT;
+        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        for (UINT i = 0; i < hizDesc.MipLevels; ++i)
+        {
+            uavDesc.Texture2D.MipSlice = i;
+            D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
+            D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle;
+            g_descHeapAllocator.Alloc(&cpuHandle, &gpuHandle);
+            m_d3dDevice->CreateUnorderedAccessView(m_hiZBuffer.Get(), nullptr, &uavDesc, cpuHandle);
+        }
     }
 
     // Create constant buffer for scene
@@ -712,6 +769,69 @@ void RenderApplication::PopulateCommandList()
         m_model.RenderDepthOnly(m_d3dDevice.Get(), m_commandList.Get(), frustum);
     }
 
+    // HiZ pass
+    {
+        D3D12_RESOURCE_BARRIER barriers[2];
+
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_hiZBuffer.Get(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_depth.Get(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        m_commandList->ResourceBarrier(2, barriers);
+
+        m_commandList->SetPipelineState(m_hiZPipelineState.Get());
+        m_commandList->SetComputeRootSignature(m_hiZRootSignature.Get());
+        // Bind CBV descriptor heap for constant buffer view
+        ID3D12DescriptorHeap* ppDescHeaps[] = { m_srvDescHeap.Get() };
+        m_commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+
+        struct HiZConstantBuffer
+        {
+            XMFLOAT2 InvTextureSize;
+            XMFLOAT2 OutDimensions;
+            UINT MipLevel;
+            XMFLOAT3 Padding;
+        } hiZCB = { {1.f / static_cast<float>(m_width), 1.f / static_cast<float>(m_height)}, 
+            {static_cast<float>(m_width), static_cast<float>(m_height)}, 0 };
+
+        // Copy depth to HiZ level 0
+        m_commandList->SetComputeRootDescriptorTable(0, m_hiZDepthSrvGpuHandle);    // srv
+        m_commandList->SetComputeRootDescriptorTable(1, CD3DX12_GPU_DESCRIPTOR_HANDLE(m_hiZGpuHandle).Offset(1, m_hiZDescriptorSize));    // uav
+        m_commandList->SetComputeRoot32BitConstants(2, 5, &hiZCB, 0);
+        m_commandList->Dispatch((m_width + 7) / 8, (m_height + 7) / 8, 1);
+
+        UINT width = m_width, height = m_height;
+        for (UINT mip = 1; mip < m_hiZBuffer->GetDesc().MipLevels; ++mip)
+        {
+            width = max(width / 2, 1u);
+            height = max(height / 2, 1u);
+            hiZCB.MipLevel = mip;
+            // In: mip - 1 * increment size
+            // Out: mip * increment size
+            m_commandList->SetComputeRootDescriptorTable(0, CD3DX12_GPU_DESCRIPTOR_HANDLE(m_hiZGpuHandle).Offset(mip, m_hiZDescriptorSize));  // srv
+            m_commandList->SetComputeRootDescriptorTable(1, CD3DX12_GPU_DESCRIPTOR_HANDLE(m_hiZGpuHandle).Offset(mip + 1, m_hiZDescriptorSize));  // uav
+            m_commandList->SetComputeRoot32BitConstants(2, 5, &hiZCB, 0);
+            m_commandList->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
+            m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::UAV(m_hiZBuffer.Get()));
+        }
+
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_hiZBuffer.Get(),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_depth.Get(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_DEPTH_READ);
+
+        m_commandList->ResourceBarrier(2, barriers);
+    }
     // Main pass
     {
         m_commandList->SetPipelineState(m_pipelineState.Get());
@@ -734,18 +854,11 @@ void RenderApplication::PopulateCommandList()
         m_commandList->SetGraphicsRootDescriptorTable(4, m_cbvGpuDescHandle);
 
         // Transition back buffer to RENDER_TARGET
-        D3D12_RESOURCE_BARRIER barriers[2];
-
-        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_depth.Get(),
-            D3D12_RESOURCE_STATE_DEPTH_WRITE,
-            D3D12_RESOURCE_STATE_DEPTH_READ);
-
-        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
             m_renderTarget[m_frameIndex].Get(),
             D3D12_RESOURCE_STATE_PRESENT,
             D3D12_RESOURCE_STATE_RENDER_TARGET);
-        m_commandList->ResourceBarrier(2, barriers);
+        m_commandList->ResourceBarrier(1, &barrier);
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
         m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &m_dsvCpuHandle);

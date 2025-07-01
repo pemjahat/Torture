@@ -74,10 +74,8 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_srvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_samplerDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
-    ComPtr<ID3D12DescriptorHeap> m_depthOnlyDescHeap;
 
     D3D12_CPU_DESCRIPTOR_HANDLE m_dsvCpuHandle;
-
     D3D12_CPU_DESCRIPTOR_HANDLE m_cbvCpuDescHandle;
     D3D12_GPU_DESCRIPTOR_HANDLE m_cbvGpuDescHandle;
 
@@ -94,10 +92,19 @@ private:
     UINT8* m_cbvDataBegin;
     UINT8* m_lightDataBegin;
 
-    // Passes resource
-    ComPtr<ID3D12Resource> m_depthOnlyBuffer;
+    // Depth Passes resource
     ComPtr<ID3D12RootSignature> m_depthOnlyRootSignature;
     ComPtr<ID3D12PipelineState> m_depthOnlyPipelineState;
+
+    // HiZ Passes resource
+    ComPtr<ID3D12Resource> m_hiZBuffer;
+    ComPtr<ID3D12RootSignature> m_hiZRootSignature;
+    ComPtr<ID3D12PipelineState> m_hiZPipelineState;
+    D3D12_CPU_DESCRIPTOR_HANDLE m_hiZCpuHandle;
+    D3D12_GPU_DESCRIPTOR_HANDLE m_hiZGpuHandle;
+    D3D12_CPU_DESCRIPTOR_HANDLE m_hiZDepthSrvCpuHandle;
+    D3D12_GPU_DESCRIPTOR_HANDLE m_hiZDepthSrvGpuHandle;
+    UINT m_hiZDescriptorSize;
 
     // Synchronization
     UINT m_frameIndex;

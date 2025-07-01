@@ -77,6 +77,46 @@ PSInput VSMain(VSInput input)
     return output;
 }
 
+//if (inFrustum) {
+//float screenSize = max(maxScreen.x - minScreen.x, maxScreen.y - minScreen.y);
+//uint mipLevel = max(0, (int) floor(log2(screenSize / 8.0)));
+//uint maxMipLevel;
+//            HizTexture.GetDimensions(0, maxMipLevel, maxMipLevel, maxMipLevel);
+//            mipLevel = min(mipLevel, maxMipLevel - 1);
+
+//uint2 mipSize = max(1, uint2(TextureSize.x, TextureSize.y) >> mipLevel);
+//uint2 minPixel = max(0, int2(minScreen / (1 << mipLevel)));
+//uint2 maxPixel = min(int2(maxScreen / (1 << mipLevel)) + 1, mipSize);
+
+//bool visible = false;
+//            for (
+//uint y = minPixel.y;y < maxPixel.
+//y;++y) {
+//                for (
+//uint x = minPixel.x;x < maxPixel.
+//x;++x) {
+//float hizDepth = HizTexture.Load(int3(x, y, mipLevel));
+//                    if (minZ <= hizDepth + 0.001) {
+//                        visible = true;
+//                        break;
+//                    }
+//                }
+//                if (visible) break;
+//            }
+
+//            if (visible) {
+//                // Proceed with vertex processing
+//float4 worldPos = mul(float4(input.Position, 1.0), World);
+//                output.Position = mul(worldPos, ViewProjectionMatrix);
+//                output.WorldPos = worldPos.
+//xyz;
+//                output.Normal = mul(input.Normal, (float3x3)World);
+//                output.Tangent = float4(mul(input.Tangent.xyz, (float3x3)World), input.Tangent.w);
+//                output.TexCoord = input.
+//TexCoord;
+//                output.Visible = 1;
+//            }
+//        }
 float4 PSMain(PSInput input) : SV_TARGET
 {
     //
