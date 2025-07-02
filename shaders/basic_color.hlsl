@@ -3,7 +3,11 @@ cbuffer SceneConstantBuffer : register(b0)
     float4x4 World;
     float4x4 WorldView;
     float4x4 WorldViewProj;
-    float4 padding[4];
+    
+    float2 InvTextureSize;
+    float2 HiZDimension;
+
+    float4 padding[3];
 };
 
 cbuffer LightData : register(b1)
@@ -25,6 +29,11 @@ cbuffer MaterialData : register(b2)
     int hasMetallicRoughnessMap; // 1 if metallic roughness map available
     int hasNormalMap;               // 1 if normal map availabe
     float paddedMat;
+    
+    float3 centerBound;
+    float padBound1;
+    float3 extentsBound;
+    float padBound2;
     
     float4 baseColorFactor;
     float4x4 meshTransform; //Per-mesh transform
@@ -49,11 +58,60 @@ struct PSInput
     float2 uv : TEXCOORD;
 };
 
-Texture2D albedoTex : register(t0);
-Texture2D metallicRoughnessTex : register(t1);
-Texture2D normalTex : register(t2);
+Texture2D HiZTex : register(t0);
+
+Texture2D albedoTex : register(t1);
+Texture2D metallicRoughnessTex : register(t2);
+Texture2D normalTex : register(t3);
 
 SamplerState g_sampler : register(s0);
+
+bool IsAABBVisible(float3 center, float3 extents, float4x4 worldViewProj)
+{
+    // transform aabb to clip space
+    float3 minBound = center - extents;
+    float3 maxBound = center + extents;
+    float3 corners[8];
+    corners[0] = float3(minBound.x, minBound.y, minBound.z);
+    corners[1] = float3(maxBound.x, minBound.y, minBound.z);
+    corners[2] = float3(minBound.x, maxBound.y, minBound.z);
+    corners[3] = float3(maxBound.x, maxBound.y, minBound.z);
+    corners[4] = float3(minBound.x, minBound.y, maxBound.z);
+    corners[5] = float3(maxBound.x, minBound.y, maxBound.z);
+    corners[6] = float3(minBound.x, maxBound.y, maxBound.z);
+    corners[7] = float3(maxBound.x, maxBound.y, maxBound.z);
+    
+    float2 minUV = float2(1.f, 1.f);
+    float2 maxUV = float2(0.f, 0.f);
+    float minDepth = 1.f;   // far
+    for (int i = 0; i < 8; ++i)
+    {
+        // Transform to clip space
+        float4 clipPos = mul(float4(corners[i], 1.f), worldViewProj);
+        clipPos /= clipPos.w;   // perspective divide
+        
+        // Compute screen space uv
+        float2 uv = float2(clipPos.x * 0.5 + 0.5, 1.f - (clipPos.y * 0.5 + 0.5));
+        minUV = min(minUV, uv);
+        maxUV = max(maxUV, uv);
+        minDepth = min(minDepth, clipPos.z);    // closest depth (0 - near, 1 - far)
+    }
+    
+    // clamp
+    minUV = max(minUV, 0.f);
+    maxUV = min(maxUV, 1.f);
+    
+    // Mip level based on aabb screen size
+    float2 aabbSize = (maxUV - minUV) * HiZDimension;
+    float mipLevel = ceil(log2(max(aabbSize.x, aabbSize.y)));
+    
+    // Sample hiz texture at conservative postion (center of aabb)
+    float2 sampleUV = (minUV + maxUV) * 0.5f;
+    float hizDepth = HiZTex.SampleLevel(g_sampler, sampleUV, mipLevel);
+    
+    // Occlusio test: aabb occluded if closes depth behind hiz depth
+    return minDepth <= hizDepth;
+}
 
 PSInput VSMain(VSInput input)
 {
@@ -62,6 +120,18 @@ PSInput VSMain(VSInput input)
     // Apply mesh transform
     float4 pos = float4(input.position, 1.f);
     pos = mul(pos, meshTransform);
+    
+    //if (!IsAABBVisible(centerBound, extentsBound, WorldViewProj))
+    //{
+    //    // Out degenerate position cull vertex
+    //    output.position = float4(0, 0, 0, 0);
+    //    output.worldPos = float4(0, 0, 0, 0);
+    //    output.normal = float3(0, 0, 0);
+    //    output.tangent = float4(0, 0, 0, 0);
+    //    output.uv = float2(0, 0);
+    //    return output;
+    //}
+    
     output.worldPos = pos;
     output.position = mul(pos, WorldViewProj);
     
@@ -77,46 +147,6 @@ PSInput VSMain(VSInput input)
     return output;
 }
 
-//if (inFrustum) {
-//float screenSize = max(maxScreen.x - minScreen.x, maxScreen.y - minScreen.y);
-//uint mipLevel = max(0, (int) floor(log2(screenSize / 8.0)));
-//uint maxMipLevel;
-//            HizTexture.GetDimensions(0, maxMipLevel, maxMipLevel, maxMipLevel);
-//            mipLevel = min(mipLevel, maxMipLevel - 1);
-
-//uint2 mipSize = max(1, uint2(TextureSize.x, TextureSize.y) >> mipLevel);
-//uint2 minPixel = max(0, int2(minScreen / (1 << mipLevel)));
-//uint2 maxPixel = min(int2(maxScreen / (1 << mipLevel)) + 1, mipSize);
-
-//bool visible = false;
-//            for (
-//uint y = minPixel.y;y < maxPixel.
-//y;++y) {
-//                for (
-//uint x = minPixel.x;x < maxPixel.
-//x;++x) {
-//float hizDepth = HizTexture.Load(int3(x, y, mipLevel));
-//                    if (minZ <= hizDepth + 0.001) {
-//                        visible = true;
-//                        break;
-//                    }
-//                }
-//                if (visible) break;
-//            }
-
-//            if (visible) {
-//                // Proceed with vertex processing
-//float4 worldPos = mul(float4(input.Position, 1.0), World);
-//                output.Position = mul(worldPos, ViewProjectionMatrix);
-//                output.WorldPos = worldPos.
-//xyz;
-//                output.Normal = mul(input.Normal, (float3x3)World);
-//                output.Tangent = float4(mul(input.Tangent.xyz, (float3x3)World), input.Tangent.w);
-//                output.TexCoord = input.
-//TexCoord;
-//                output.Visible = 1;
-//            }
-//        }
 float4 PSMain(PSInput input) : SV_TARGET
 {
     //

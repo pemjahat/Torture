@@ -4,7 +4,11 @@ cbuffer SceneConstantBuffer : register(b0)
     float4x4 World;
     float4x4 WorldView;
     float4x4 WorldViewProj;
-    float4 padding[4];
+    
+    float2 InvTextureSize;
+    float2 HiZDimension;
+    
+    float4 padding[3];
 };
 
 cbuffer MaterialData : register(b1)
@@ -18,6 +22,11 @@ cbuffer MaterialData : register(b1)
     int hasMetallicRoughnessMap; // 1 if metallic roughness map available
     int hasNormalMap; // 1 if normal map availabe
     float paddedMat;
+    
+    float3 centerBound;
+    float padBound1;
+    float3 extentsBound;
+    float padBound2;
     
     float4 baseColorFactor;
     float4x4 meshTransform; //Per-mesh transform

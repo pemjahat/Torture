@@ -94,6 +94,11 @@ struct MaterialConstantBuffer
 	int hasNormalMap = 0;
 	float paddedMat;
 
+	DirectX::XMFLOAT3 centerBound;
+	float padBound1;
+	DirectX::XMFLOAT3 extentsBound;
+	float padBound2;
+
 	DirectX::XMFLOAT4 baseColorFactor;
 	DirectX::XMFLOAT4X4 meshTransform;
 };

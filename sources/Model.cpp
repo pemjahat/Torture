@@ -650,6 +650,12 @@ HRESULT Model::RenderDepthOnly(ID3D12Device* device, ID3D12GraphicsCommandList* 
         materialCB.hasNormalMap = (material.normalTextureIndex >= 0) ? 1 : 0;
         materialCB.baseColorFactor = material.baseColorFactor;
 
+        XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
+        BoundingBox worldBox;
+        mesh.boundingBox.Transform(worldBox, world);
+        materialCB.centerBound = worldBox.Center;
+        materialCB.extentsBound = worldBox.Extents;
+
         memcpy(static_cast<char*>(mappedData) + i * materialCBSize, &materialCB, sizeof(MaterialConstantBuffer));
     }
     m_materialCB->Unmap(0, nullptr);
@@ -722,7 +728,7 @@ HRESULT Model::RenderBasePass(ID3D12Device* device, ID3D12GraphicsCommandList* c
     {
         // take the first one for now
         auto& samplerData = m_model.samplers[0];
-        cmdList->SetGraphicsRootDescriptorTable(3, samplerData.samplerGpuHandle);
+        cmdList->SetGraphicsRootDescriptorTable(4, samplerData.samplerGpuHandle);
     }
 
     for (size_t i = 0; i < m_model.meshes.size(); ++i)
@@ -746,19 +752,19 @@ HRESULT Model::RenderBasePass(ID3D12Device* device, ID3D12GraphicsCommandList* c
         if (material.albedoTextureIndex >= 0)
         {
             const auto& texView = m_model.textures[material.albedoTextureIndex];
-            cmdList->SetGraphicsRootDescriptorTable(0, texView.srvTextureGpuHandle);
+            cmdList->SetGraphicsRootDescriptorTable(1, texView.srvTextureGpuHandle);
         }
         if (material.metallicRoughnessTextureIndex >= 0)
         {
             const auto& texView = m_model.textures[material.metallicRoughnessTextureIndex];
-            cmdList->SetGraphicsRootDescriptorTable(1, texView.srvTextureGpuHandle);
+            cmdList->SetGraphicsRootDescriptorTable(2, texView.srvTextureGpuHandle);
         }
         if (material.normalTextureIndex >= 0)
         {
             const auto& texView = m_model.textures[material.normalTextureIndex];
-            cmdList->SetGraphicsRootDescriptorTable(2, texView.srvTextureGpuHandle);
+            cmdList->SetGraphicsRootDescriptorTable(3, texView.srvTextureGpuHandle);
         }
-        cmdList->SetGraphicsRootDescriptorTable(5, resource.constantBufferView);
+        cmdList->SetGraphicsRootDescriptorTable(6, resource.constantBufferView);
 
         // Set vertex and index buffers
         cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);

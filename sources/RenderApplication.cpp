@@ -262,18 +262,19 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // Root signature (base pass)
     {
         // Descriptor range
-        CD3DX12_DESCRIPTOR_RANGE1 ranges[6];
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[7];
         // 1 - number of descriptor 
         // 0 - base shader register (start with 0)
         // 0 - register space (for advance scenario)
         // FLAG_DATA_STATIC - data pointed to SRV is static and won't change while descriptor is bound
-        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Albedo
-        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Metallic
-        ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Normal
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // HiZ
+        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Albedo
+        ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Metallic
+        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Normal
 
-        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0); // Sampler
-        ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
-        ranges[5].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb2)
+        ranges[4].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0); // Sampler
+        ranges[5].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
+        ranges[6].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb2)
 
         // Root parameter in root signature
         // Tell GPU how access SRV via descriptor table
@@ -281,14 +282,15 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
 
         // Shared destriptor table between srv + cbv, and visibility all
-        CD3DX12_ROOT_PARAMETER1 rootParameters[6];
-        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Albedo
-        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Metallic
-        rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Normal
+        CD3DX12_ROOT_PARAMETER1 rootParameters[7];
+        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);  // srv : HiZ
+        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Albedo
+        rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Metallic
+        rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_PIXEL);  // srv : Normal
 
-        rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_PIXEL);  // sampler
-        rootParameters[4].InitAsDescriptorTable(1, &ranges[4], D3D12_SHADER_VISIBILITY_ALL);    // cbv for vs/ps
-        rootParameters[5].InitAsDescriptorTable(1, &ranges[5], D3D12_SHADER_VISIBILITY_ALL);    // cbv material
+        rootParameters[4].InitAsDescriptorTable(1, &ranges[4], D3D12_SHADER_VISIBILITY_ALL);  // sampler
+        rootParameters[5].InitAsDescriptorTable(1, &ranges[5], D3D12_SHADER_VISIBILITY_ALL);    // cbv for vs/ps
+        rootParameters[6].InitAsDescriptorTable(1, &ranges[6], D3D12_SHADER_VISIBILITY_ALL);    // cbv material
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
         //rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, rootSignatureFlags);
@@ -646,6 +648,8 @@ void RenderApplication::OnUpdate()
     XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
     XMStoreFloat4x4(&m_constantBufferData.WorldView, XMMatrixTranspose(world * view));
     XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));
+    m_constantBufferData.InvTextureSize = XMFLOAT2(1.f / static_cast<float>(m_width), 1.f / static_cast<float>(m_height));
+    m_constantBufferData.HiZDimension = XMFLOAT2(static_cast<float>(m_width), static_cast<float>(m_height));
 
     // Constant buffer created with upload heap
     // Need to map buffer once during creation, udpate directly in mapped memory
@@ -851,7 +855,8 @@ void RenderApplication::PopulateCommandList()
         //m_commandList->SetGraphicsRootDescriptorTable(0, m_srvDescHeap->GetGPUDescriptorHandleForHeapStart());
         // Remove the shared, since root descriptor table using visiblity = ALL, so Texture SRV need extra flag
         //m_commandList->SetGraphicsRootDescriptorTable(0, m_srvTextureGpuHandle);
-        m_commandList->SetGraphicsRootDescriptorTable(4, m_cbvGpuDescHandle);
+        m_commandList->SetGraphicsRootDescriptorTable(0, m_hiZGpuHandle);       // t0: HiZ srv
+        m_commandList->SetGraphicsRootDescriptorTable(5, m_cbvGpuDescHandle);   // b0: Scene, Light
 
         // Transition back buffer to RENDER_TARGET
         D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(

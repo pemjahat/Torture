@@ -46,7 +46,9 @@ private:
         XMFLOAT4X4 World;
         XMFLOAT4X4 WorldView;
         XMFLOAT4X4 WorldViewProj;
-        float padding[16];  // padd to 256byte aligned
+        XMFLOAT2 InvTextureSize;
+        XMFLOAT2 HiZDimension;
+        float padding[12];  // padd to 256byte aligned
     };
 
     struct LightData
