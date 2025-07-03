@@ -39,7 +39,9 @@ public:
 
 private:
     static const UINT FrameCount = 2;
-    static const UINT SrvCbvHeapSize = 10000;
+    static const UINT SrvCbvHeapSize = 1000;
+    static const UINT ModelCbvBaseIndex = 5;
+    static const UINT ModelSrvBaseIndex = 255;
 
     struct SceneConstantBuffer
     {
@@ -73,9 +75,10 @@ private:
     ComPtr<ID3D12PipelineState> m_pipelineState;
 
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
-    ComPtr<ID3D12DescriptorHeap> m_srvDescHeap;
+    ComPtr<ID3D12DescriptorHeap> m_srvcbvDescHeap;    
     ComPtr<ID3D12DescriptorHeap> m_samplerDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
+    ComPtr<ID3D12DescriptorHeap> m_imguiDescHeap;
 
     D3D12_CPU_DESCRIPTOR_HANDLE m_dsvCpuHandle;
     D3D12_CPU_DESCRIPTOR_HANDLE m_cbvCpuDescHandle;

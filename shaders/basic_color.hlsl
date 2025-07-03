@@ -25,17 +25,19 @@ cbuffer MaterialData : register(b2)
     float metallicFactor;
     float roughnessFactor;
     
-    int hasAlbedoMap;
-    int hasMetallicRoughnessMap; // 1 if metallic roughness map available
-    int hasNormalMap;               // 1 if normal map availabe
+    // >=0 if available
+    int albedoTextureIndex;
+    int metallicTextureIndex;
+    int normalTextureIndex;
     float paddedMat;
     
+    float4 baseColorFactor;
+
     float3 centerBound;
     float padBound1;
     float3 extentsBound;
     float padBound2;
     
-    float4 baseColorFactor;
     float4x4 meshTransform; //Per-mesh transform
 };
 
@@ -55,63 +57,59 @@ struct PSInput
     float3 normal : NORMAL;
     float4 color : COLOR;
     float4 tangent : TANGENT;
-    float2 uv : TEXCOORD;
+    float2 uv : TEXCOORD;    
 };
 
-Texture2D HiZTex : register(t0);
-
-Texture2D albedoTex : register(t1);
-Texture2D metallicRoughnessTex : register(t2);
-Texture2D normalTex : register(t3);
+Texture2D materialTex[] : register(t0, space0);    // bindless for material (share desc heap)
 
 SamplerState g_sampler : register(s0);
 
-bool IsAABBVisible(float3 center, float3 extents, float4x4 worldViewProj)
-{
-    // transform aabb to clip space
-    float3 minBound = center - extents;
-    float3 maxBound = center + extents;
-    float3 corners[8];
-    corners[0] = float3(minBound.x, minBound.y, minBound.z);
-    corners[1] = float3(maxBound.x, minBound.y, minBound.z);
-    corners[2] = float3(minBound.x, maxBound.y, minBound.z);
-    corners[3] = float3(maxBound.x, maxBound.y, minBound.z);
-    corners[4] = float3(minBound.x, minBound.y, maxBound.z);
-    corners[5] = float3(maxBound.x, minBound.y, maxBound.z);
-    corners[6] = float3(minBound.x, maxBound.y, maxBound.z);
-    corners[7] = float3(maxBound.x, maxBound.y, maxBound.z);
+//bool IsAABBVisible(float3 center, float3 extents, float4x4 worldViewProj)
+//{
+//    // transform aabb to clip space
+//    float3 minBound = center - extents;
+//    float3 maxBound = center + extents;
+//    float3 corners[8];
+//    corners[0] = float3(minBound.x, minBound.y, minBound.z);
+//    corners[1] = float3(maxBound.x, minBound.y, minBound.z);
+//    corners[2] = float3(minBound.x, maxBound.y, minBound.z);
+//    corners[3] = float3(maxBound.x, maxBound.y, minBound.z);
+//    corners[4] = float3(minBound.x, minBound.y, maxBound.z);
+//    corners[5] = float3(maxBound.x, minBound.y, maxBound.z);
+//    corners[6] = float3(minBound.x, maxBound.y, maxBound.z);
+//    corners[7] = float3(maxBound.x, maxBound.y, maxBound.z);
     
-    float2 minUV = float2(1.f, 1.f);
-    float2 maxUV = float2(0.f, 0.f);
-    float minDepth = 1.f;   // far
-    for (int i = 0; i < 8; ++i)
-    {
-        // Transform to clip space
-        float4 clipPos = mul(float4(corners[i], 1.f), worldViewProj);
-        clipPos /= clipPos.w;   // perspective divide
+//    float2 minUV = float2(1.f, 1.f);
+//    float2 maxUV = float2(0.f, 0.f);
+//    float minDepth = 1.f;   // far
+//    for (int i = 0; i < 8; ++i)
+//    {
+//        // Transform to clip space
+//        float4 clipPos = mul(float4(corners[i], 1.f), worldViewProj);
+//        clipPos /= clipPos.w;   // perspective divide
         
-        // Compute screen space uv
-        float2 uv = float2(clipPos.x * 0.5 + 0.5, 1.f - (clipPos.y * 0.5 + 0.5));
-        minUV = min(minUV, uv);
-        maxUV = max(maxUV, uv);
-        minDepth = min(minDepth, clipPos.z);    // closest depth (0 - near, 1 - far)
-    }
+//        // Compute screen space uv
+//        float2 uv = float2(clipPos.x * 0.5 + 0.5, 1.f - (clipPos.y * 0.5 + 0.5));
+//        minUV = min(minUV, uv);
+//        maxUV = max(maxUV, uv);
+//        minDepth = min(minDepth, clipPos.z);    // closest depth (0 - near, 1 - far)
+//    }
     
-    // clamp
-    minUV = max(minUV, 0.f);
-    maxUV = min(maxUV, 1.f);
+//    // clamp
+//    minUV = max(minUV, 0.f);
+//    maxUV = min(maxUV, 1.f);
     
-    // Mip level based on aabb screen size
-    float2 aabbSize = (maxUV - minUV) * HiZDimension;
-    float mipLevel = ceil(log2(max(aabbSize.x, aabbSize.y)));
+//    // Mip level based on aabb screen size
+//    float2 aabbSize = (maxUV - minUV) * HiZDimension;
+//    float mipLevel = ceil(log2(max(aabbSize.x, aabbSize.y)));
     
-    // Sample hiz texture at conservative postion (center of aabb)
-    float2 sampleUV = (minUV + maxUV) * 0.5f;
-    float hizDepth = HiZTex.SampleLevel(g_sampler, sampleUV, mipLevel);
+//    // Sample hiz texture at conservative postion (center of aabb)
+//    float2 sampleUV = (minUV + maxUV) * 0.5f;
+//    float hizDepth = HiZTex.SampleLevel(g_sampler, sampleUV, mipLevel);
     
-    // Occlusio test: aabb occluded if closes depth behind hiz depth
-    return minDepth <= hizDepth;
-}
+//    // Occlusio test: aabb occluded if closes depth behind hiz depth
+//    return minDepth <= hizDepth;
+//}
 
 PSInput VSMain(VSInput input)
 {
@@ -187,9 +185,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     }
     
     float3 worldNormal = normalize(input.normal);
-    if (hasNormalMap)
+    if (normalTextureIndex >= 0)
     {
-        float3 normalMap = normalTex.Sample(g_sampler, input.uv); // normal map in tangent space
+        float3 normalMap = materialTex[NonUniformResourceIndex(normalTextureIndex)].Sample(g_sampler, input.uv).rgb;
         normalMap = normalMap * 2.f - 1.f;
         normalMap = normalize(normalMap);
         
@@ -204,9 +202,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     {
         albedo = input.color.rgb;
     }
-    else if (hasAlbedoMap)
+    else if (albedoTextureIndex >= 0)
     {
-        albedo = albedoTex.Sample(g_sampler, input.uv).rgb * baseColorFactor.rgb;
+        albedo *= materialTex[NonUniformResourceIndex(albedoTextureIndex)].Sample(g_sampler, input.uv).rgb;
     }
     
     //
@@ -214,9 +212,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     //
     float metallic = metallicFactor;
     float roughness = roughnessFactor;
-    if (hasMetallicRoughnessMap)
+    if (metallicTextureIndex >= 0)
     {
-        float4 matSample = metallicRoughnessTex.Sample(g_sampler, input.uv);
+        float3 matSample = materialTex[NonUniformResourceIndex(metallicTextureIndex)].Sample(g_sampler, input.uv).rgb;
         metallic = matSample.b;
         roughness = matSample.g;
     }

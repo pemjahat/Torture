@@ -36,9 +36,7 @@ struct TextureResource
 struct TextureView
 {
 	int resourceIndex = -1;
-	// Resource
-	D3D12_CPU_DESCRIPTOR_HANDLE srvTextureCpuHandle;
-	D3D12_GPU_DESCRIPTOR_HANDLE srvTextureGpuHandle;
+	int viewIndex = -1;
 };
 
 struct MaterialData
@@ -89,17 +87,17 @@ struct MaterialConstantBuffer
 	float metallicFactor = 0.f;
 	float roughnessFactor = 1.f;
 
-	int hasAlbedoMap = 0;
-	int hasMetallicRoughnessMap = 0;
-	int hasNormalMap = 0;
+	int albedoTextureIndex = 0;
+	int metallicTextureIndex = 0;
+	int normalTextureIndex = 0;
 	float paddedMat;
+
+	DirectX::XMFLOAT4 baseColorFactor;
 
 	DirectX::XMFLOAT3 centerBound;
 	float padBound1;
 	DirectX::XMFLOAT3 extentsBound;
 	float padBound2;
-
-	DirectX::XMFLOAT4 baseColorFactor;
 	DirectX::XMFLOAT4X4 meshTransform;
 };
 
@@ -126,12 +124,20 @@ public:
 	HRESULT LoadFromFile(const std::string& filePath);
 	HRESULT UploadGpuResources(
 		ID3D12Device* device,
-		DescriptorHeapAllocator& heapAlloc,	// For srv	
+		UINT srvBaseIndex,
+		UINT cbvBaseIndex,
+		ID3D12DescriptorHeap* srvcbvHeap,
 		ID3D12DescriptorHeap* samplerHeap,	// For sampler
 		ID3D12GraphicsCommandList* cmdList);
 
 	HRESULT RenderDepthOnly(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const DirectX::BoundingFrustum& frustum);
-	HRESULT RenderBasePass(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const DirectX::BoundingFrustum& frustum);
+	HRESULT RenderBasePass(
+		ID3D12Device* device, 
+		ID3D12GraphicsCommandList* cmdList,
+		UINT srvBaseIndex,
+		UINT cbvBaseIndex,
+		ID3D12DescriptorHeap* srvHeap,
+		const DirectX::BoundingFrustum& frustum);
 
 private:
 	// Helper
