@@ -142,7 +142,13 @@ public:
 		ID3D12DescriptorHeap* samplerHeap,	// For sampler
 		ID3D12GraphicsCommandList* cmdList);
 
-	HRESULT RenderDepthOnly(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList, const DirectX::BoundingFrustum& frustum);
+	HRESULT RenderDepthOnly(
+		ID3D12Device* device, 
+		ID3D12GraphicsCommandList* cmdList, 
+		UINT sbBaseIndex,
+		ID3D12DescriptorHeap* srvHeap,
+		const DirectX::BoundingFrustum& frustum);
+
 	HRESULT RenderBasePass(
 		ID3D12Device* device, 
 		ID3D12GraphicsCommandList* cmdList,
@@ -160,14 +166,15 @@ private:
 	ModelData m_model;
 
 	std::vector<MeshResources> m_meshResources;
-	//std::vector<MeshStructuredBuffer> m_meshSB;
-	//std::vector<MaterialStructuredBuffer> m_materialSB;
+
+	ComPtr<ID3D12RootSignature> m_rootSignature;
+	ComPtr<ID3D12PipelineState> m_pipelineState;
 
 	ComPtr<ID3D12Resource> m_meshSB;
 	ComPtr<ID3D12Resource> m_meshUploadSB;
 	ComPtr<ID3D12Resource> m_materialSB;
 	ComPtr<ID3D12Resource> m_materialUploadSB;
-	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;	
+	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;
 };
 
 

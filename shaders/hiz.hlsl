@@ -13,10 +13,8 @@ RWTexture2D<float> OutputHiZ : register(u0);
 
 cbuffer HiZConstantBuffer : register(b0)
 {
-    float2 InvTextureSize;
     float2 OutDimensions;
     uint MipLevel;
-    uint3 Padding;
 };
 
 [numthreads(8, 8, 1)]

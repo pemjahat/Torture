@@ -1,3 +1,5 @@
+#include "common.hlsl"
+
 cbuffer SceneConstantBuffer : register(b0)
 {
     float4x4 World;
@@ -16,39 +18,6 @@ cbuffer LightData : register(b1)
     float intensity;
     float3 color;
     float padded;
-};
-
-struct ModelConstants
-{
-    uint meshIndex;     // index for mesh structured buffer
-    uint materialIndex; // index for material structured buffer
-};
-
-struct MeshData
-{
-    float3 centerBound;
-    float padBound1;
-    
-    float3 extentsBound;
-    float padBound2;
-    
-    float4x4 meshTransform; //Per-mesh transform
-};
-
-struct MaterialData
-{
-    int useVertexColor;
-    int useTangent; //  1 if tangent available, 0 use Mikktspace
-    float metallicFactor;
-    float roughnessFactor;
-    
-    // >=0 if available
-    int albedoTextureIndex;
-    int metallicTextureIndex;
-    int normalTextureIndex;
-    float paddedMat;
-    
-    float4 baseColorFactor;
 };
 
 struct VSInput
@@ -70,7 +39,10 @@ struct PSInput
     float2 uv : TEXCOORD0;
 };
 
+ConstantBuffer<SceneConstantBuffer> sceneCB : register(b0);
+ConstantBuffer<LightData> lightCB : register(b1);
 ConstantBuffer<ModelConstants> modelConstants : register(b2);
+
 StructuredBuffer<MeshData> meshData : register(t0);
 StructuredBuffer<MaterialData> materialData : register(t1);
 
@@ -146,13 +118,13 @@ PSInput VSMain(VSInput input)
     //}
     
     output.worldPos = pos;
-    output.position = mul(pos, WorldViewProj);
+    output.position = mul(pos, sceneCB.WorldViewProj);
     
     float4 norm = float4(input.normal, 0.f);
-    output.normal = normalize(mul(norm, World).xyz);
+    output.normal = normalize(mul(norm, sceneCB.World).xyz);
     
     float4 tangent = float4(input.tangent.xyz, 0.f);
-    output.tangent = float4(normalize(mul(tangent, World).xyz), input.tangent.w);
+    output.tangent = float4(normalize(mul(tangent, sceneCB.World).xyz), input.tangent.w);
     
     output.uv = input.uv;
     output.color = input.color;
@@ -238,9 +210,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     //float diffuseFactor = 1.f - metallic;
     
     // Lighting calculation
-    float3 lightDir = normalize(-direction);
+    float3 lightDir = normalize(-lightCB.direction);
     float NdotL = max(dot(worldNormal, lightDir), 0.0);
     
-    float3 lighting = albedo * color * intensity * NdotL;
+    float3 lighting = albedo * lightCB.color * lightCB.intensity * NdotL;
     return float4(lighting, 1.f);
 }

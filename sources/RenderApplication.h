@@ -107,7 +107,6 @@ private:
     UINT8* m_lightDataBegin;
 
     // Depth Passes resource
-    ComPtr<ID3D12RootSignature> m_depthOnlyRootSignature;
     ComPtr<ID3D12PipelineState> m_depthOnlyPipelineState;
 
     // HiZ Passes resource
