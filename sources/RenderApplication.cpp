@@ -208,7 +208,7 @@ void RenderApplication::LoadPipeline()
 
     // One for apps, one for Imgui
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = SrvCbvHeapSize;
+    srvHeapDesc.NumDescriptors = DescriptorSrvCbvCount;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     CheckHRESULT(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvcbvDescHeap)));
@@ -278,18 +278,19 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         // Tell GPU how access SRV via descriptor table
         // 1 - number of descriptor range in table
         // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
-        CD3DX12_DESCRIPTOR_RANGE1 ranges[4];
-        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
-        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 2, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Material (cb2)
-        ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1000, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Bindless textures
-        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0); // Sampler
-
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[5];
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, DescriptorCBVCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Scene (cb0) + Light (cb1)
+        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, DescriptorSBCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Model sb start at t0
+        ranges[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, DescriptorTexCount, DescriptorSBCount, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Model tex start at t2
+        ranges[3].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0); // Sampler        
+        
         // Shared destriptor table between srv + cbv, and visibility all
-        CD3DX12_ROOT_PARAMETER1 rootParameters[4];
+        CD3DX12_ROOT_PARAMETER1 rootParameters[5];
         rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);    // cbv for vs/ps
-        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);    // cbv material
-        rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);  // srv : Bindless texture
-        rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_ALL);  // sampler
+        rootParameters[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);    // srv : Structured buffer, Bindless
+        rootParameters[2].InitAsDescriptorTable(1, &ranges[2], D3D12_SHADER_VISIBILITY_ALL);    // sampler
+        rootParameters[3].InitAsDescriptorTable(1, &ranges[3], D3D12_SHADER_VISIBILITY_ALL);    // sampler
+        rootParameters[4].InitAsConstants(2, 2, 0, D3D12_SHADER_VISIBILITY_ALL);    // 2x 32 bit value, base register: b2
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
         //rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, rootSignatureFlags);
@@ -297,7 +298,13 @@ void RenderApplication::LoadAsset(SDL_Window* window)
 
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
-        CheckHRESULT(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_1, &signature, &error));
+        HRESULT hr = D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_1, &signature, &error);
+        if (FAILED(hr))
+        {
+            std::string errorMsg = std::string(static_cast<const char*>(error->GetBufferPointer()), error->GetBufferSize());
+            assert(false && errorMsg.c_str());
+        }
+        //CheckHRESULT(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_1, &signature, &error));
         CheckHRESULT(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
     }
     
@@ -652,8 +659,8 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     m_model.LoadFromFile(WStringToString(gltfPath));
     m_model.UploadGpuResources(
         m_d3dDevice.Get(),
-        ModelSrvBaseIndex,
-        ModelCbvBaseIndex,
+        DescriptorModelSBBase,
+        DescriptorModelTexBase,
         m_srvcbvDescHeap.Get(),        
         m_samplerDescHeap.Get(), 
         m_commandList.Get());
@@ -939,8 +946,8 @@ void RenderApplication::PopulateCommandList()
         m_model.RenderBasePass(
             m_d3dDevice.Get(), 
             m_commandList.Get(), 
-            ModelSrvBaseIndex,
-            ModelCbvBaseIndex,
+            DescriptorModelSBBase,
+            DescriptorModelTexBase,
             m_srvcbvDescHeap.Get(),
             frustum);
     }

@@ -80,7 +80,7 @@ struct ModelData
 	bool hasTangent = false;
 };
 
-struct MaterialConstantBuffer
+struct MaterialStructuredBuffer
 {
 	int useVertexColor = 0;
 	int useTangent = 0;
@@ -93,12 +93,24 @@ struct MaterialConstantBuffer
 	float paddedMat;
 
 	DirectX::XMFLOAT4 baseColorFactor;
+};
 
+struct MeshStructuredBuffer
+{
 	DirectX::XMFLOAT3 centerBound;
 	float padBound1;
+	
 	DirectX::XMFLOAT3 extentsBound;
 	float padBound2;
+
 	DirectX::XMFLOAT4X4 meshTransform;
+};
+
+// Constant must be aligned to 256 bytes
+struct ModelConstants
+{
+	UINT meshIndex;		// index for mesh structured buffer
+	UINT materialIndex;	// index for material structured buffer
 };
 
 struct MeshResources
@@ -124,8 +136,8 @@ public:
 	HRESULT LoadFromFile(const std::string& filePath);
 	HRESULT UploadGpuResources(
 		ID3D12Device* device,
-		UINT srvBaseIndex,
-		UINT cbvBaseIndex,
+		UINT sbBaseIndex,
+		UINT texBaseIndex,		
 		ID3D12DescriptorHeap* srvcbvHeap,
 		ID3D12DescriptorHeap* samplerHeap,	// For sampler
 		ID3D12GraphicsCommandList* cmdList);
@@ -134,8 +146,8 @@ public:
 	HRESULT RenderBasePass(
 		ID3D12Device* device, 
 		ID3D12GraphicsCommandList* cmdList,
-		UINT srvBaseIndex,
-		UINT cbvBaseIndex,
+		UINT sbBaseIndex,
+		UINT texBaseIndex,		
 		ID3D12DescriptorHeap* srvHeap,
 		const DirectX::BoundingFrustum& frustum);
 
@@ -148,8 +160,13 @@ private:
 	ModelData m_model;
 
 	std::vector<MeshResources> m_meshResources;
+	//std::vector<MeshStructuredBuffer> m_meshSB;
+	//std::vector<MaterialStructuredBuffer> m_materialSB;
 
-	ComPtr<ID3D12Resource> m_materialCB;
+	ComPtr<ID3D12Resource> m_meshSB;
+	ComPtr<ID3D12Resource> m_meshUploadSB;
+	ComPtr<ID3D12Resource> m_materialSB;
+	ComPtr<ID3D12Resource> m_materialUploadSB;
 	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;	
 };
 

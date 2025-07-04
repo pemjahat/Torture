@@ -40,8 +40,19 @@ public:
 private:
     static const UINT FrameCount = 2;
     static const UINT SrvCbvHeapSize = 1000;
-    static const UINT ModelCbvBaseIndex = 5;
-    static const UINT ModelSrvBaseIndex = 255;
+    
+    // Total shared descriptor for main pass
+    static const UINT DescriptorCBCount = 2;
+    static const UINT DescriptorSBCount = 2;
+    static const UINT DescriptorTexCount = 500;
+
+    static const UINT DescriptorCBVCount = DescriptorCBCount;
+    static const UINT DescriptorSRVCount = DescriptorSBCount + DescriptorTexCount;
+    static const UINT DescriptorSrvCbvCount = DescriptorSRVCount + DescriptorCBVCount;
+
+    // Offset allocated for model resource
+    static const UINT DescriptorModelSBBase = DescriptorCBCount;   // reserve 5 from CB
+    static const UINT DescriptorModelTexBase = DescriptorModelSBBase + DescriptorSBCount;
 
     struct SceneConstantBuffer
     {
@@ -60,8 +71,6 @@ private:
         XMFLOAT3 color;
         float padding;
     };
-
-    
 
     // Pipeline object
     D3D12_VIEWPORT m_viewport;

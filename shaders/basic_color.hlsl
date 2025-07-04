@@ -18,10 +18,27 @@ cbuffer LightData : register(b1)
     float padded;
 };
 
-cbuffer MaterialData : register(b2)
+struct ModelConstants
+{
+    uint meshIndex;     // index for mesh structured buffer
+    uint materialIndex; // index for material structured buffer
+};
+
+struct MeshData
+{
+    float3 centerBound;
+    float padBound1;
+    
+    float3 extentsBound;
+    float padBound2;
+    
+    float4x4 meshTransform; //Per-mesh transform
+};
+
+struct MaterialData
 {
     int useVertexColor;
-    int useTangent;                 //  1 if tangent available, 0 use Mikktspace
+    int useTangent; //  1 if tangent available, 0 use Mikktspace
     float metallicFactor;
     float roughnessFactor;
     
@@ -32,13 +49,6 @@ cbuffer MaterialData : register(b2)
     float paddedMat;
     
     float4 baseColorFactor;
-
-    float3 centerBound;
-    float padBound1;
-    float3 extentsBound;
-    float padBound2;
-    
-    float4x4 meshTransform; //Per-mesh transform
 };
 
 struct VSInput
@@ -57,11 +67,14 @@ struct PSInput
     float3 normal : NORMAL;
     float4 color : COLOR;
     float4 tangent : TANGENT;
-    float2 uv : TEXCOORD;    
+    float2 uv : TEXCOORD0;
 };
 
-Texture2D materialTex[] : register(t0, space0);    // bindless for material (share desc heap)
+ConstantBuffer<ModelConstants> modelConstants : register(b2);
+StructuredBuffer<MeshData> meshData : register(t0);
+StructuredBuffer<MaterialData> materialData : register(t1);
 
+Texture2D materialTex[] : register(t2, space0);    // bindless for material (share desc heap)
 SamplerState g_sampler : register(s0);
 
 //bool IsAABBVisible(float3 center, float3 extents, float4x4 worldViewProj)
@@ -115,9 +128,11 @@ PSInput VSMain(VSInput input)
 {
     PSInput output;
     
+    MeshData mesh = meshData[modelConstants.meshIndex];
+    
     // Apply mesh transform
     float4 pos = float4(input.position, 1.f);
-    pos = mul(pos, meshTransform);
+    pos = mul(pos, mesh.meshTransform);
     
     //if (!IsAABBVisible(centerBound, extentsBound, WorldViewProj))
     //{
@@ -141,17 +156,19 @@ PSInput VSMain(VSInput input)
     
     output.uv = input.uv;
     output.color = input.color;
-    
+
     return output;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
+    MaterialData material = materialData[modelConstants.materialIndex];
+    
     //
     // Normal
     //
     float3x3 TBN;
-    if (useTangent)
+    if (material.useTangent)
     {
         float3 T = normalize(input.tangent.xyz);
         float3 N = normalize(input.normal);
@@ -185,9 +202,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     }
     
     float3 worldNormal = normalize(input.normal);
-    if (normalTextureIndex >= 0)
+    if (material.normalTextureIndex >= 0)
     {
-        float3 normalMap = materialTex[NonUniformResourceIndex(normalTextureIndex)].Sample(g_sampler, input.uv).rgb;
+        float3 normalMap = materialTex[NonUniformResourceIndex(material.normalTextureIndex)].Sample(g_sampler, input.uv).rgb;
         normalMap = normalMap * 2.f - 1.f;
         normalMap = normalize(normalMap);
         
@@ -197,24 +214,24 @@ float4 PSMain(PSInput input) : SV_TARGET
     //
     // Albedo
     //
-    float3 albedo = baseColorFactor.rgb;
-    if (useVertexColor)
+    float3 albedo = material.baseColorFactor.rgb;
+    if (material.useVertexColor)
     {
         albedo = input.color.rgb;
     }
-    else if (albedoTextureIndex >= 0)
+    else if (material.albedoTextureIndex >= 0)
     {
-        albedo *= materialTex[NonUniformResourceIndex(albedoTextureIndex)].Sample(g_sampler, input.uv).rgb;
+        albedo *= materialTex[NonUniformResourceIndex(material.albedoTextureIndex)].Sample(g_sampler, input.uv).rgb;
     }
     
     //
     // Metallic - Roughness
     //
-    float metallic = metallicFactor;
-    float roughness = roughnessFactor;
-    if (metallicTextureIndex >= 0)
+    float metallic = material.metallicFactor;
+    float roughness = material.roughnessFactor;
+    if (material.metallicTextureIndex >= 0)
     {
-        float3 matSample = materialTex[NonUniformResourceIndex(metallicTextureIndex)].Sample(g_sampler, input.uv).rgb;
+        float3 matSample = materialTex[NonUniformResourceIndex(material.metallicTextureIndex)].Sample(g_sampler, input.uv).rgb;
         metallic = matSample.b;
         roughness = matSample.g;
     }
