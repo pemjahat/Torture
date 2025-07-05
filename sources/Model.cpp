@@ -1,10 +1,9 @@
-#define NOMINMAX // Prevent min/max macros
 #include "Model.h"
-#include <DirectXCollision.h>
-#include "d3dx12.h"
-#include <tiny_gltf.h>
 
 using namespace DirectX;
+
+// Tinygltf
+#include <tiny_gltf.h>
 
 Model::Model()
 {
@@ -376,8 +375,7 @@ HRESULT Model::UploadGpuResources(
     ID3D12Device* device,
     UINT sbBaseIndex,
     UINT texBaseIndex,    
-    ID3D12DescriptorHeap* srvcbvHeap,
-    ID3D12DescriptorHeap* samplerHeap,	// For sampler
+    ID3D12DescriptorHeap* srvcbvHeap,    
     ID3D12GraphicsCommandList* cmdList)
 {
     if (m_model.meshes.empty())
@@ -386,10 +384,10 @@ HRESULT Model::UploadGpuResources(
     }
 
     // Advance heap offset based on based index before used
-    //CD3DX12_CPU_DESCRIPTOR_HANDLE sbCpuHandle(srvcbvHeap->GetCPUDescriptorHandleForHeapStart());
-    //sbCpuHandle.Offset(sbBaseIndex, device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
-    //CD3DX12_CPU_DESCRIPTOR_HANDLE texCpuHandle(srvcbvHeap->GetCPUDescriptorHandleForHeapStart());
-    //texCpuHandle.Offset(texBaseIndex, device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
+    CD3DX12_CPU_DESCRIPTOR_HANDLE sbCpuHandle(srvcbvHeap->GetCPUDescriptorHandleForHeapStart());
+    sbCpuHandle.Offset(sbBaseIndex, device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
+    CD3DX12_CPU_DESCRIPTOR_HANDLE texCpuHandle(srvcbvHeap->GetCPUDescriptorHandleForHeapStart());
+    texCpuHandle.Offset(texBaseIndex, device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
 
     m_meshResources.resize(m_model.meshes.size());
 
@@ -688,9 +686,10 @@ HRESULT Model::UploadGpuResources(
         samplerDesc.MinLOD = 0.f;
         samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
 
-        samplerData.samplerCpuHandle = samplerHeap->GetCPUDescriptorHandleForHeapStart();
+        // Move to static sampler
+        /*samplerData.samplerCpuHandle = samplerHeap->GetCPUDescriptorHandleForHeapStart();
         samplerData.samplerGpuHandle = samplerHeap->GetGPUDescriptorHandleForHeapStart();
-        device->CreateSampler(&samplerDesc, samplerData.samplerCpuHandle);
+        device->CreateSampler(&samplerDesc, samplerData.samplerCpuHandle);*/
     }
     return S_OK;
 }
@@ -731,7 +730,7 @@ HRESULT Model::RenderDepthOnly(
 
         // Constant
         ModelConstants constant = { static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex) };
-        cmdList->SetGraphicsRoot32BitConstants(4, 2, &constant, 0);
+        cmdList->SetGraphicsRoot32BitConstants(3, 2, &constant, 0);
 
         // Set vertex and index buffers
         cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);
@@ -770,8 +769,8 @@ HRESULT Model::RenderBasePass(
     if (!m_model.samplers.empty())
     {
         // take the first one for now
-        auto& samplerData = m_model.samplers[0];
-        cmdList->SetGraphicsRootDescriptorTable(3, samplerData.samplerGpuHandle);
+        /*auto& samplerData = m_model.samplers[0];
+        cmdList->SetGraphicsRootDescriptorTable(3, samplerData.samplerGpuHandle);*/
     }
     
     for (size_t i = 0; i < m_model.meshes.size(); ++i)
@@ -792,7 +791,7 @@ HRESULT Model::RenderBasePass(
 
         // Constant
         ModelConstants constant = {static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex)};
-        cmdList->SetGraphicsRoot32BitConstants(4, 2, &constant, 0);
+        cmdList->SetGraphicsRoot32BitConstants(3, 2, &constant, 0);
 
         // Set vertex and index buffers
         cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);

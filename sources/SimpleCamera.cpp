@@ -1,6 +1,4 @@
-#define NOMINMAX // Prevent min/max macros
 #include "SimpleCamera.h"
-#include <algorithm>
 
 SimpleCamera::SimpleCamera():
 	m_initialPosition(0, 0, 0),

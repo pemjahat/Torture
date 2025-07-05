@@ -1,9 +1,6 @@
 #pragma once
 
-#include <DirectXMath.h>
-#include <DirectXCollision.h>
-#include <SDL.h>
-
+#include "PCH.h"
 #include "Helper.h"
 
 using namespace DirectX;

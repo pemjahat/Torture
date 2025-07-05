@@ -86,6 +86,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${BIN_DIR})
 
 # Add executable
 add_executable(${PROJECT_NAME} ${SOURCES})
+target_precompile_headers(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/sources/PCH.h)
 
 # Add imgui source file (need to compile source)
 set(IMGUI_SOURCES
@@ -130,7 +131,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     d3d12
     dxgi
     dxguid   #dxgi debug layer
-    ${DXCOMPILER_LIBRARY}
+    ${DXC_DIR}/lib/x64/dxcompiler.lib
 )
 
 # Symlink

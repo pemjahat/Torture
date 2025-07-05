@@ -1,12 +1,6 @@
 #pragma once
 
-#include <d3d12.h>
-#include <DirectXMath.h>
-#include <DirectXCollision.h>
-#include <vector>
-#include <string>
-#include <wrl/client.h> 
-
+#include "PCH.h"
 #include "Helper.h"
 
 using Microsoft::WRL::ComPtr;
@@ -138,8 +132,7 @@ public:
 		ID3D12Device* device,
 		UINT sbBaseIndex,
 		UINT texBaseIndex,		
-		ID3D12DescriptorHeap* srvcbvHeap,
-		ID3D12DescriptorHeap* samplerHeap,	// For sampler
+		ID3D12DescriptorHeap* srvcbvHeap,		
 		ID3D12GraphicsCommandList* cmdList);
 
 	HRESULT RenderDepthOnly(

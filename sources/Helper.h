@@ -1,11 +1,23 @@
 #pragma once
 
+#include "PCH.h"
 #include <cassert>
-#include <windows.h>
-#include <string>
-#include <wrl/client.h> // For ComPtr
-#include <d3d12.h>
-#include <vector>
+
+enum class SamplerState
+{
+    Linear = 0,
+    LinearClamp,
+    Point,
+    MaxSampler
+};
+
+// Once
+void InitializeHelper();
+
+// States
+D3D12_SAMPLER_DESC GetSamplerState(SamplerState samplerState);
+D3D12_STATIC_SAMPLER_DESC GetStaticSamplerState(SamplerState samplerState, uint32_t shaderRegister = 0, uint32_t registerSpace = 0);
+D3D12_STATIC_SAMPLER_DESC ConvertToStaticSampler(const D3D12_SAMPLER_DESC samplerDesc, uint32_t shaderRegister, uint32_t registerSpace);
 
 struct DescriptorHeapAllocator
 {

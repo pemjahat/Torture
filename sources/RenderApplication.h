@@ -1,12 +1,7 @@
 #pragma once
 
-#include <d3d12.h>
-#include <dxgi1_6.h>
-#include <d3dcompiler.h>
-#include <wrl/client.h> // For ComPtr
-#include <string>
-#include <SDL.h>
-#include <vector>
+#include "PCH.h"
+
 #include "StepTimer.h"
 #include "Model.h"
 #include "SimpleCamera.h"
@@ -85,7 +80,6 @@ private:
 
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvcbvDescHeap;    
-    ComPtr<ID3D12DescriptorHeap> m_samplerDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_imguiDescHeap;
 
