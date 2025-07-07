@@ -2,6 +2,7 @@
 
 #include "PCH.h"
 #include "Helper.h"
+#include "GraphicsTypes.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -109,11 +110,8 @@ struct ModelConstants
 
 struct MeshResources
 {
-	Microsoft::WRL::ComPtr<ID3D12Resource> vertexBuffer;
-	Microsoft::WRL::ComPtr<ID3D12Resource> indexBuffer;
-
-	Microsoft::WRL::ComPtr<ID3D12Resource> vertexUploadBuffer;
-	Microsoft::WRL::ComPtr<ID3D12Resource> indexUploadBuffer;
+	StructuredBuffer vertexBuffer;
+	FormattedBuffer indexBuffer;
 
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
 	D3D12_INDEX_BUFFER_VIEW indexBufferView;

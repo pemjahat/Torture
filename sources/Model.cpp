@@ -13,15 +13,6 @@ Model::Model()
 
 Model::~Model()
 {
-    // Unmap vertex + index buffer
-    /*if (m_vertexBuffer && m_mappedVertexBufferData)
-    {
-        m_vertexBuffer->Unmap(0, nullptr);
-    }
-    if (m_indexBuffer && m_mappedIndexBufferData)
-    {
-        m_indexBuffer->Unmap(0, nullptr);
-    }*/
 }
 
 //
@@ -397,74 +388,26 @@ HRESULT Model::UploadGpuResources(
         auto& mesh = m_model.meshes[i];
         auto& resource = m_meshResources[i];
 
-        // Create vertex buffer (upload heap)
-        UINT vertexBufferSize = static_cast<UINT>(mesh.vertices.size() * sizeof(VertexData));
+        // Create vertex buffer
+        StructuredBufferInit sbi;
+        sbi.stride = sizeof(VertexData);
+        sbi.numElements = mesh.vertices.size();
+        sbi.initData = mesh.vertices.data();
+        sbi.initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+        sbi.name = L"ModelVertexBuffer";
 
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(&resource.vertexBuffer)));
+        resource.vertexBuffer.Initialize(sbi);
+        
+        // Create index buffer
+        FormattedBufferInit fbi;
+        fbi.format = DXGI_FORMAT_R32_UINT;
+        fbi.bitSize = 32;
+        fbi.numElements = mesh.indices.size();
+        fbi.initData = mesh.indices.data();
+        fbi.initState = D3D12_RESOURCE_STATE_INDEX_BUFFER;
+        fbi.name = L"ModelIndexBuffer";
 
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&resource.vertexUploadBuffer)));
-
-        void* mappedData;
-        resource.vertexUploadBuffer->Map(0, nullptr, &mappedData);
-        memcpy(mappedData, mesh.vertices.data(), vertexBufferSize);
-        resource.vertexUploadBuffer->Unmap(0, nullptr);
-
-        cmdList->CopyBufferRegion(resource.vertexBuffer.Get(), 0, resource.vertexUploadBuffer.Get(), 0, vertexBufferSize);
-        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-            resource.vertexBuffer.Get(),
-            D3D12_RESOURCE_STATE_COPY_DEST,
-            D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
-        cmdList->ResourceBarrier(1, &barrier);
-
-        resource.vertexBufferView.BufferLocation = resource.vertexBuffer->GetGPUVirtualAddress();
-        resource.vertexBufferView.SizeInBytes = vertexBufferSize;
-        resource.vertexBufferView.StrideInBytes = sizeof(VertexData);
-
-        // Create index buffer (upload heap)
-        UINT indexBufferSize = static_cast<UINT>(mesh.indices.size() * sizeof(uint32_t));
-
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(&resource.indexBuffer)));
-
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&resource.indexUploadBuffer)));
-
-        resource.indexUploadBuffer->Map(0, nullptr, &mappedData);
-        memcpy(mappedData, mesh.indices.data(), indexBufferSize);
-        resource.indexUploadBuffer->Unmap(0, nullptr);
-
-        cmdList->CopyBufferRegion(resource.indexBuffer.Get(), 0, resource.indexUploadBuffer.Get(), 0, indexBufferSize);
-        barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-            resource.indexBuffer.Get(),
-            D3D12_RESOURCE_STATE_COPY_DEST,
-            D3D12_RESOURCE_STATE_INDEX_BUFFER);
-        cmdList->ResourceBarrier(1, &barrier);
-
-        resource.indexBufferView.BufferLocation = resource.indexBuffer->GetGPUVirtualAddress();
-        resource.indexBufferView.SizeInBytes = indexBufferSize;
-        resource.indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+        resource.indexBuffer.Initialize(fbi);
     }
 
     // Create mesh structured buffer
@@ -734,8 +677,8 @@ HRESULT Model::RenderDepthOnly(
         cmdList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
 
         // Set vertex and index buffers
-        cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);
-        cmdList->IASetIndexBuffer(&resource.indexBufferView);
+        cmdList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
+        cmdList->IASetIndexBuffer(&resource.indexBuffer.IBView());
         cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmdList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
     }
@@ -795,8 +738,8 @@ HRESULT Model::RenderBasePass(
         cmdList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
 
         // Set vertex and index buffers
-        cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);
-        cmdList->IASetIndexBuffer(&resource.indexBufferView);
+        cmdList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
+        cmdList->IASetIndexBuffer(&resource.indexBuffer.IBView());
         cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmdList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
     }
