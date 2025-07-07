@@ -4,6 +4,7 @@ using namespace DirectX;
 
 // Tinygltf
 #include <tiny_gltf.h>
+#include "Utility.h"
 
 Model::Model()
 {
@@ -710,7 +711,7 @@ HRESULT Model::RenderDepthOnly(
     sbGpuHandle.Offset(sbBaseIndex, device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
 
     // srv for material non texture (structured buffer)
-    cmdList->SetGraphicsRootDescriptorTable(1, sbGpuHandle);
+    cmdList->SetGraphicsRootDescriptorTable(3, sbGpuHandle);
 
     for (size_t i = 0; i < m_model.meshes.size(); ++i)
     {
@@ -730,7 +731,7 @@ HRESULT Model::RenderDepthOnly(
 
         // Constant
         ModelConstants constant = { static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex) };
-        cmdList->SetGraphicsRoot32BitConstants(3, 2, &constant, 0);
+        cmdList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
 
         // Set vertex and index buffers
         cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);
@@ -761,9 +762,9 @@ HRESULT Model::RenderBasePass(
     texGpuHandle.Offset(texBaseIndex, device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
 
     // srv for material non texture (structured buffer)
-    cmdList->SetGraphicsRootDescriptorTable(1, sbGpuHandle);
+    cmdList->SetGraphicsRootDescriptorTable(3, sbGpuHandle);
     // srv for materials texture
-    cmdList->SetGraphicsRootDescriptorTable(2, texGpuHandle);
+    cmdList->SetGraphicsRootDescriptorTable(4, texGpuHandle);
 
     // descriptor table
     if (!m_model.samplers.empty())
@@ -791,7 +792,7 @@ HRESULT Model::RenderBasePass(
 
         // Constant
         ModelConstants constant = {static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex)};
-        cmdList->SetGraphicsRoot32BitConstants(3, 2, &constant, 0);
+        cmdList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
 
         // Set vertex and index buffers
         cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);

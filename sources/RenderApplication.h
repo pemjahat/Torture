@@ -5,6 +5,8 @@
 #include "StepTimer.h"
 #include "Model.h"
 #include "SimpleCamera.h"
+#include "DX12.h"
+#include "GraphicsTypes.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -56,7 +58,7 @@ private:
         XMFLOAT4X4 WorldViewProj;
         XMFLOAT2 InvTextureSize;
         XMFLOAT2 HiZDimension;
-        float padding[12];  // padd to 256byte aligned
+        //float padding[12];  // padd to 256byte aligned
     };
 
     struct LightData
@@ -70,11 +72,8 @@ private:
     // Pipeline object
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<IDXGISwapChain3> m_swapChain;    
     ComPtr<ID3D12Resource> m_renderTarget[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_commandAllocator;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
     ComPtr<ID3D12RootSignature> m_rootSignature;
     ComPtr<ID3D12PipelineState> m_pipelineState;
 
@@ -89,13 +88,15 @@ private:
 
     D3D12_CPU_DESCRIPTOR_HANDLE m_lightCpuDescHandle;
 
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
+    
     UINT m_rtvDescriptorSize;
 
     // Render app resources
     ComPtr<ID3D12Resource> m_depth;
-    ComPtr<ID3D12Resource> m_constantBuffer;
-    ComPtr<ID3D12Resource> m_lightCB;
+    //ComPtr<ID3D12Resource> m_constantBuffer;
+    //ComPtr<ID3D12Resource> m_lightCB;
+    ConstantBuffer m_sceneCB;
+    ConstantBuffer m_lightCB;
     SceneConstantBuffer m_constantBufferData;    
     UINT8* m_cbvDataBegin;
     UINT8* m_lightDataBegin;

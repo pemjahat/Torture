@@ -19,6 +19,14 @@ D3D12_SAMPLER_DESC GetSamplerState(SamplerState samplerState);
 D3D12_STATIC_SAMPLER_DESC GetStaticSamplerState(SamplerState samplerState, uint32_t shaderRegister = 0, uint32_t registerSpace = 0);
 D3D12_STATIC_SAMPLER_DESC ConvertToStaticSampler(const D3D12_SAMPLER_DESC samplerDesc, uint32_t shaderRegister, uint32_t registerSpace);
 
+// Upload
+struct MapResult
+{
+    void* cpuAddress = nullptr;
+    uint64_t gpuAddress = 0;
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource = nullptr;
+};
+
 struct DescriptorHeapAllocator
 {
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> Heap = nullptr;
@@ -64,23 +72,6 @@ struct DescriptorHeapAllocator
         FreeIndices.push_back(cpu_idx);
     }
 };
-
-inline void CheckHRESULT(HRESULT hr = S_OK)
-{
-    if (FAILED(hr))
-    {
-        std::string fullMessage = "(HRESULT: 0x" + std::to_string(hr) + ")";
-        assert(false && fullMessage.c_str());
-    }
-}
-
-inline std::string WStringToString(const std::wstring& wstr)
-{
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
-    std::string str(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.size()), &str[0], size_needed, nullptr, nullptr);
-    return str;
-}
 
 //void LogError(const char* message, HRESULT hr = S_OK)
 //{
