@@ -1,7 +1,6 @@
 #pragma once
 
 #include "PCH.h"
-#include "Helper.h"
 
 struct DescriptorAlloc
 {
@@ -10,9 +9,17 @@ struct DescriptorAlloc
 	uint32_t descriptorIndex = uint32_t(-1);
 };
 
+// Upload
+struct MapResult
+{
+	void* cpuAddress = nullptr;
+	uint64_t gpuAddress = 0;
+	Microsoft::WRL::ComPtr<ID3D12Resource> resource = nullptr;
+};
+
 struct DescriptorHeap
 {
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap;
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap = nullptr;
 	uint32_t numDescriptor = 0;
 	uint32_t numAllocated = 0;
 	uint32_t heapIncrement = 0;
@@ -21,13 +28,14 @@ struct DescriptorHeap
 	D3D12_CPU_DESCRIPTOR_HANDLE cpuStart = {};
 	D3D12_GPU_DESCRIPTOR_HANDLE gpuStart = {};
 
-	void Initialize(uint32_t size, D3D12_DESCRIPTOR_HEAP_TYPE type, bool shaderVisible);
+	void Initialize(uint32_t size, D3D12_DESCRIPTOR_HEAP_TYPE type);
 	void Shutdown();
 
 	DescriptorAlloc Allocate();
 	void Free(uint32_t& index);
 
 	D3D12_CPU_DESCRIPTOR_HANDLE CPUHandleFromIndex(uint32_t descriptorIdx) const;
+	D3D12_GPU_DESCRIPTOR_HANDLE GPUHandleFromIndex(uint32_t descriptorIdx) const;
 };
 
 struct Buffer
@@ -44,6 +52,7 @@ struct Buffer
 		const void* initData, 
 		D3D12_RESOURCE_STATES initialState, 
 		const wchar_t* name);
+	void Shutdown();
 
 	MapResult Map();
 };
@@ -61,6 +70,7 @@ struct ConstantBuffer
 	Buffer internalBuffer;	
 
 	void Initialize(const ConstantBufferInit& init);
+	void Shutdown();
 
 	void SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
 	void SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
@@ -81,14 +91,15 @@ struct StructuredBuffer
 	Buffer internalBuffer;
 	uint64_t stride;
 	uint64_t numElements;
+	uint32_t descriptorIndex;
 
 	void Initialize(const StructuredBufferInit& init);
+	void Shutdown();
 
 	void SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
 	void SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
 
-	D3D12_VERTEX_BUFFER_VIEW VBView() const;
-	D3D12_SHADER_RESOURCE_VIEW_DESC SRVDesc() const;
+	D3D12_VERTEX_BUFFER_VIEW VBView() const;	
 };
 
 struct FormattedBufferInit
@@ -108,6 +119,7 @@ struct FormattedBuffer
 	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
 
 	void Initialize(const FormattedBufferInit& init);
+	void Shutdown();
 
 	D3D12_INDEX_BUFFER_VIEW IBView() const;
 };

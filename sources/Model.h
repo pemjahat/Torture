@@ -112,18 +112,13 @@ struct MeshResources
 {
 	StructuredBuffer vertexBuffer;
 	FormattedBuffer indexBuffer;
-
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
-	D3D12_INDEX_BUFFER_VIEW indexBufferView;
-
-	D3D12_GPU_DESCRIPTOR_HANDLE constantBufferView;
 };
 
 class Model
 {
 public:
-	Model();
-	~Model();
+	void Initialize();
+	void Shutdown();
 
 	HRESULT LoadFromFile(const std::string& filePath);
 	HRESULT UploadGpuResources(
@@ -161,10 +156,12 @@ private:
 	ComPtr<ID3D12RootSignature> m_rootSignature;
 	ComPtr<ID3D12PipelineState> m_pipelineState;
 
-	ComPtr<ID3D12Resource> m_meshSB;
-	ComPtr<ID3D12Resource> m_meshUploadSB;
-	ComPtr<ID3D12Resource> m_materialSB;
-	ComPtr<ID3D12Resource> m_materialUploadSB;
+	//ComPtr<ID3D12Resource> m_meshSB;
+	//ComPtr<ID3D12Resource> m_meshUploadSB;
+	//ComPtr<ID3D12Resource> m_materialSB;
+	//ComPtr<ID3D12Resource> m_materialUploadSB;
+	StructuredBuffer m_meshSB;
+	StructuredBuffer m_materialSB;
 	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;
 };
 

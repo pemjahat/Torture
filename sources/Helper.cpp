@@ -4,8 +4,13 @@ static const uint32_t NumSamplerState = uint32_t(SamplerState::MaxSampler);
 
 static D3D12_SAMPLER_DESC SamplerStateDesc[NumSamplerState] = {};
 
+DescriptorHeap srvDescriptorHeap;
+
 void InitializeHelper()
 {
+	// Descriptor heap
+	srvDescriptorHeap.Initialize(1024, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
 	// Sampler state
 	{
 		D3D12_SAMPLER_DESC& samplerDesc = SamplerStateDesc[uint32_t(SamplerState::Linear)];
@@ -47,6 +52,11 @@ void InitializeHelper()
 		samplerDesc.MinLOD = 0;
 		samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
 	}
+}
+
+void ShutdownHelper()
+{
+	srvDescriptorHeap.Shutdown();
 }
 
 D3D12_SAMPLER_DESC GetSamplerState(SamplerState samplerState)

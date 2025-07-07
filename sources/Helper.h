@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PCH.h"
+#include "GraphicsTypes.h"
 #include <cassert>
 
 enum class SamplerState
@@ -11,21 +12,19 @@ enum class SamplerState
     MaxSampler
 };
 
+// External
+extern DescriptorHeap srvDescriptorHeap;
+
 // Once
 void InitializeHelper();
+void ShutdownHelper();
 
 // States
 D3D12_SAMPLER_DESC GetSamplerState(SamplerState samplerState);
 D3D12_STATIC_SAMPLER_DESC GetStaticSamplerState(SamplerState samplerState, uint32_t shaderRegister = 0, uint32_t registerSpace = 0);
 D3D12_STATIC_SAMPLER_DESC ConvertToStaticSampler(const D3D12_SAMPLER_DESC samplerDesc, uint32_t shaderRegister, uint32_t registerSpace);
 
-// Upload
-struct MapResult
-{
-    void* cpuAddress = nullptr;
-    uint64_t gpuAddress = 0;
-    Microsoft::WRL::ComPtr<ID3D12Resource> resource = nullptr;
-};
+
 
 struct DescriptorHeapAllocator
 {

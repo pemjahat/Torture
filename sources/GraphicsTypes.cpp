@@ -2,24 +2,25 @@
 
 #include "Utility.h"
 #include "DX12.h"
+#include "Helper.h"
 
 //
 // Descriptor  Heap
 //
-void DescriptorHeap::Initialize(uint32_t size, D3D12_DESCRIPTOR_HEAP_TYPE type, bool shaderVisible)
+void DescriptorHeap::Initialize(uint32_t size, D3D12_DESCRIPTOR_HEAP_TYPE type)
 {
 	assert(size > 0);
 	numDescriptor = size;
 	heapType = type;
 
 	FreeIndices.reserve(numDescriptor);
-	for (uint32_t i = 0; i < numDescriptor; ++i)
-		FreeIndices[i] = i;
+	for (int n = 0; n < numDescriptor; n++)
+		FreeIndices.push_back(n);
 
 	D3D12_DESCRIPTOR_HEAP_DESC desc = {};
 	desc.NumDescriptors = numDescriptor;
 	desc.Type = heapType;
-	desc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
 	CheckHRESULT(d3dDevice->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap)));
 
@@ -32,7 +33,6 @@ void DescriptorHeap::Shutdown()
 {
 	if (heap != nullptr)
 	{
-		heap->Release();
 		heap = nullptr;
 	}
 }
@@ -72,6 +72,14 @@ D3D12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::CPUHandleFromIndex(uint32_t descript
 {
 	assert(descriptorIdx < numDescriptor);
 	D3D12_CPU_DESCRIPTOR_HANDLE handle = cpuStart;
+	handle.ptr += descriptorIdx * heapIncrement;
+	return handle;
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE DescriptorHeap::GPUHandleFromIndex(uint32_t descriptorIdx) const
+{
+	assert(descriptorIdx < numDescriptor);
+	D3D12_GPU_DESCRIPTOR_HANDLE handle = gpuStart;
 	handle.ptr += descriptorIdx * heapIncrement;
 	return handle;
 }
@@ -145,6 +153,14 @@ void Buffer::Initialize(
 	}
 }
 
+void Buffer::Shutdown()
+{
+	if (resource)
+	{
+		resource = nullptr;
+	}
+}
+
 MapResult Buffer::Map()
 {
 	MapResult mapResult = {};
@@ -160,6 +176,11 @@ MapResult Buffer::Map()
 void ConstantBuffer::Initialize(const ConstantBufferInit& init)
 {
 	internalBuffer.Initialize(init.size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, init.cpuAccessible, nullptr, D3D12_RESOURCE_STATE_GENERIC_READ, init.name);
+}
+
+void ConstantBuffer::Shutdown()
+{
+	internalBuffer.Shutdown();
 }
 
 void ConstantBuffer::SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
@@ -191,17 +212,38 @@ void StructuredBuffer::Initialize(const StructuredBufferInit& init)
 
 	internalBuffer.Initialize(stride * numElements, stride, false, init.initData, init.initState, init.name);
 
-	// create shader resource views
+	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
+	descriptorIndex = srvAlloc.descriptorIndex;
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.Buffer.FirstElement = 0;
+	srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+	srvDesc.Buffer.NumElements = numElements;
+	srvDesc.Buffer.StructureByteStride = stride;
+	d3dDevice->CreateShaderResourceView(internalBuffer.resource.Get(), &srvDesc, srvAlloc.startCpuHandle);
+}
+
+void StructuredBuffer::Shutdown()
+{
+	srvDescriptorHeap.Free(descriptorIndex);
+	internalBuffer.Shutdown();
 }
 
 void StructuredBuffer::SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
 {
-
+	assert(descriptorIndex != uint32_t(-1));
+	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(descriptorIndex);
+	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
 }
 
 void StructuredBuffer::SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
 {
-
+	assert(descriptorIndex != uint32_t(-1));
+	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(descriptorIndex);
+	cmdList->SetComputeRootDescriptorTable(rootParameter, handle);
 }
 
 D3D12_VERTEX_BUFFER_VIEW StructuredBuffer::VBView() const
@@ -213,20 +255,6 @@ D3D12_VERTEX_BUFFER_VIEW StructuredBuffer::VBView() const
 	return vbView;
 }
 
-D3D12_SHADER_RESOURCE_VIEW_DESC StructuredBuffer::SRVDesc() const
-{
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.Buffer.FirstElement = 0;
-	srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-	srvDesc.Buffer.NumElements = numElements;
-	srvDesc.Buffer.StructureByteStride = stride;
-	return srvDesc;
-	/*device->CreateShaderResourceView(m_meshSB.Get(), &srvDesc, sbCpuHandle);
-	sbCpuHandle.Offset(1, device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));*/
-}
 //
 // Formatted Buffer
 //
@@ -239,6 +267,11 @@ void FormattedBuffer::Initialize(const FormattedBufferInit& init)
 	format = init.format;
 
 	internalBuffer.Initialize(stride * numElements, stride, false, init.initData, init.initState, init.name);
+}
+
+void FormattedBuffer::Shutdown()
+{
+	internalBuffer.Shutdown();
 }
 
 D3D12_INDEX_BUFFER_VIEW FormattedBuffer::IBView() const

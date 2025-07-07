@@ -795,6 +795,10 @@ void RenderApplication::OnDestroy()
 
     CloseHandle(m_fenceEvent);
 
+    m_model.Shutdown();
+
+    ShutdownHelper();
+
     // ImGui
     g_descHeapAllocator.Destroy();
     ImGui_ImplDX12_Shutdown();
