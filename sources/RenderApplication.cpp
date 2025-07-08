@@ -192,7 +192,8 @@ void RenderApplication::LoadPipeline()
 
     // One for apps, one for Imgui
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = DescriptorSrvCbvCount;
+    //srvHeapDesc.NumDescriptors = DescriptorSrvCbvCount;
+    srvHeapDesc.NumDescriptors = DescriptorSRVCount;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     CheckHRESULT(d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvcbvDescHeap)));
@@ -277,9 +278,9 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         // 1 - number of descriptor range in table
         // VISIBILITY_PIXEL - descriptor table only visible to pixel shader stage
         CD3DX12_DESCRIPTOR_RANGE1 ranges[2];
-        //ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, DescriptorCBVCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC); // Scene (cb0) + Light (cb1)
-        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, DescriptorSBCount, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Model sb start at t0
-        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, DescriptorTexCount, DescriptorSBCount, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Model tex start at t2
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, DescriptorSRVCount, 0, 1, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Bindless space 1
+        ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);  // Model sb start at t0
+        //ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, DescriptorTexCount, DescriptorSBCount, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE); // Model tex start at t2
         
         // Shared destriptor table between srv + cbv, and visibility all
         CD3DX12_ROOT_PARAMETER1 rootParameters[5];
@@ -287,8 +288,9 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         rootParameters[1].InitAsConstantBufferView(1);  // LightCB
         rootParameters[2].InitAsConstants(2, 2, 0, D3D12_SHADER_VISIBILITY_ALL);    // 2x 32 bit value, base register: b2
         //rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);    // cbv for vs/ps
-        rootParameters[3].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);    // srv : Structured buffer
-        rootParameters[4].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);    // srv : bindless
+        rootParameters[3].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);    // srv : bindless, space 1
+        rootParameters[4].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);    // srv : space 0
+        //rootParameters[4].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);    // srv : bindless
 
         // Static sampler
         D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};

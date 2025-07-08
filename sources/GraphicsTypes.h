@@ -4,8 +4,8 @@
 
 struct DescriptorAlloc
 {
-	D3D12_CPU_DESCRIPTOR_HANDLE startCpuHandle = {};
-	D3D12_GPU_DESCRIPTOR_HANDLE startGpuHandle = {};
+	D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = {};
 	uint32_t descriptorIndex = uint32_t(-1);
 };
 
@@ -89,9 +89,9 @@ struct StructuredBufferInit
 struct StructuredBuffer
 {
 	Buffer internalBuffer;
-	uint64_t stride;
-	uint64_t numElements;
-	uint32_t descriptorIndex;
+	uint64_t stride = 0;
+	uint64_t numElements = 0;
+	uint32_t SRV = uint32_t(-1);
 
 	void Initialize(const StructuredBufferInit& init);
 	void Shutdown();
@@ -122,4 +122,30 @@ struct FormattedBuffer
 	void Shutdown();
 
 	D3D12_INDEX_BUFFER_VIEW IBView() const;
+};
+
+struct TextureInit
+{
+	uint32_t width = 0;
+	uint32_t height = 0;
+	const void* initData = nullptr;
+};
+
+struct Texture
+{
+	uint32_t SRV = uint32_t(-1);
+	Microsoft::WRL::ComPtr<ID3D12Resource> resource = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> upload = nullptr;
+	uint32_t width = 0;
+	uint32_t height = 0;
+	uint32_t depth = 0;
+	uint32_t numMips = 0;
+	uint32_t arraySize = 0;
+	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+
+	void Initialize(const TextureInit& init);
+	void Shutdown();
+
+	void SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
+	void SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
 };

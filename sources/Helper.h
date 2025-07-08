@@ -19,12 +19,12 @@ extern DescriptorHeap srvDescriptorHeap;
 void InitializeHelper();
 void ShutdownHelper();
 
+const D3D12_DESCRIPTOR_RANGE1* SRVDescriptorRanges();
+
 // States
 D3D12_SAMPLER_DESC GetSamplerState(SamplerState samplerState);
 D3D12_STATIC_SAMPLER_DESC GetStaticSamplerState(SamplerState samplerState, uint32_t shaderRegister = 0, uint32_t registerSpace = 0);
 D3D12_STATIC_SAMPLER_DESC ConvertToStaticSampler(const D3D12_SAMPLER_DESC samplerDesc, uint32_t shaderRegister, uint32_t registerSpace);
-
-
 
 struct DescriptorHeapAllocator
 {

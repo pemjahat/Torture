@@ -43,10 +43,10 @@ ConstantBuffer<SceneConstantBuffer> sceneCB : register(b0);
 ConstantBuffer<LightData> lightCB : register(b1);
 ConstantBuffer<ModelConstants> modelConstants : register(b2);
 
+Texture2D materialTex[] : register(t0, space1); // bindless for material (share desc heap)
 StructuredBuffer<MeshData> meshData : register(t0);
 StructuredBuffer<MaterialData> materialData : register(t1);
 
-Texture2D materialTex[] : register(t2, space0);    // bindless for material (share desc heap)
 SamplerState g_sampler : register(s0);
 
 //bool IsAABBVisible(float3 center, float3 extents, float4x4 worldViewProj)

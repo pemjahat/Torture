@@ -39,16 +39,17 @@ private:
     static const UINT SrvCbvHeapSize = 1000;
     
     // Total shared descriptor for main pass
-    static const UINT DescriptorCBCount = 2;
+    //static const UINT DescriptorCBCount = 2;
     static const UINT DescriptorSBCount = 2;
     static const UINT DescriptorTexCount = 500;
 
-    static const UINT DescriptorCBVCount = DescriptorCBCount;
+    //static const UINT DescriptorCBVCount = DescriptorCBCount;
     static const UINT DescriptorSRVCount = DescriptorSBCount + DescriptorTexCount;
-    static const UINT DescriptorSrvCbvCount = DescriptorSRVCount + DescriptorCBVCount;
+    //static const UINT DescriptorSrvCbvCount = DescriptorSRVCount + DescriptorCBVCount;
 
     // Offset allocated for model resource
-    static const UINT DescriptorModelSBBase = DescriptorCBCount;   // reserve 5 from CB
+    //static const UINT DescriptorModelSBBase = DescriptorCBCount;   // reserve 5 from CB
+    static const UINT DescriptorModelSBBase = 0;   // reserve 5 from CB
     static const UINT DescriptorModelTexBase = DescriptorModelSBBase + DescriptorSBCount;
 
     struct SceneConstantBuffer

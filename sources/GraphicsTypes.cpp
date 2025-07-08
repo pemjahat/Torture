@@ -46,11 +46,11 @@ DescriptorAlloc DescriptorHeap::Allocate()
 
 	DescriptorAlloc alloc;
 	alloc.descriptorIndex = idx;
-	alloc.startCpuHandle = cpuStart;
-	alloc.startCpuHandle.ptr += idx * heapIncrement;
+	alloc.cpuHandle = cpuStart;
+	alloc.cpuHandle.ptr += idx * heapIncrement;
 
-	alloc.startGpuHandle = gpuStart;
-	alloc.startGpuHandle.ptr += idx * heapIncrement;
+	alloc.gpuHandle = gpuStart;
+	alloc.gpuHandle.ptr += idx * heapIncrement;
 	return alloc;
 }
 
@@ -159,6 +159,10 @@ void Buffer::Shutdown()
 	{
 		resource = nullptr;
 	}
+	if (upload)
+	{
+		upload = nullptr;
+	}
 }
 
 MapResult Buffer::Map()
@@ -213,7 +217,7 @@ void StructuredBuffer::Initialize(const StructuredBufferInit& init)
 	internalBuffer.Initialize(stride * numElements, stride, false, init.initData, init.initState, init.name);
 
 	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
-	descriptorIndex = srvAlloc.descriptorIndex;
+	SRV = srvAlloc.descriptorIndex;
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
@@ -223,26 +227,26 @@ void StructuredBuffer::Initialize(const StructuredBufferInit& init)
 	srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 	srvDesc.Buffer.NumElements = numElements;
 	srvDesc.Buffer.StructureByteStride = stride;
-	d3dDevice->CreateShaderResourceView(internalBuffer.resource.Get(), &srvDesc, srvAlloc.startCpuHandle);
+	d3dDevice->CreateShaderResourceView(internalBuffer.resource.Get(), &srvDesc, srvAlloc.cpuHandle);
 }
 
 void StructuredBuffer::Shutdown()
 {
-	srvDescriptorHeap.Free(descriptorIndex);
+	srvDescriptorHeap.Free(SRV);
 	internalBuffer.Shutdown();
 }
 
 void StructuredBuffer::SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
 {
-	assert(descriptorIndex != uint32_t(-1));
-	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(descriptorIndex);
+	assert(SRV != uint32_t(-1));
+	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
 	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
 }
 
 void StructuredBuffer::SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
 {
-	assert(descriptorIndex != uint32_t(-1));
-	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(descriptorIndex);
+	assert(SRV != uint32_t(-1));
+	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
 	cmdList->SetComputeRootDescriptorTable(rootParameter, handle);
 }
 
@@ -282,4 +286,94 @@ D3D12_INDEX_BUFFER_VIEW FormattedBuffer::IBView() const
 	ibView.Format = format;
 	ibView.SizeInBytes = stride * numElements;
 	return ibView;
+}
+
+//
+// Texture
+//
+void Texture::Initialize(const TextureInit& init)
+{
+	D3D12_RESOURCE_DESC textureDesc = {};
+	textureDesc.MipLevels = 1;
+	textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	textureDesc.Width = init.width;
+	textureDesc.Height = init.height;
+	textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+	textureDesc.DepthOrArraySize = 1;
+	textureDesc.SampleDesc.Count = 1;
+	textureDesc.SampleDesc.Quality = 0;
+	textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	textureDesc.Alignment = 0;
+
+	CheckHRESULT(d3dDevice->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&textureDesc,
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr,
+		IID_PPV_ARGS(&resource)));
+
+	const uint64_t uploadBufferSize = GetRequiredIntermediateSize(resource.Get(), 0, 1);
+	CheckHRESULT(d3dDevice->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&upload)));
+
+	D3D12_SUBRESOURCE_DATA textureResourceData = {};
+	textureResourceData.pData = init.initData;
+	textureResourceData.RowPitch = init.width * sizeof(float);
+	textureResourceData.SlicePitch = textureResourceData.RowPitch * init.height;
+
+	UpdateSubresources(commandList.Get(), resource.Get(), upload.Get(), 0, 0, 1, &textureResourceData);
+
+	D3D12_RESOURCE_BARRIER barrier = {};
+	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	barrier.Transition.pResource = resource.Get();
+	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+	// Need this if descriptor table is shared = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	commandList->ResourceBarrier(1, &barrier);
+
+	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
+	SRV = srvAlloc.descriptorIndex;
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MipLevels = 1;
+	d3dDevice->CreateShaderResourceView(resource.Get(), &srvDesc, srvAlloc.cpuHandle);
+}
+
+void Texture::Shutdown()
+{
+	srvDescriptorHeap.Free(SRV);
+
+	if (resource)
+	{
+		resource = nullptr;
+	}
+	if (upload)
+	{
+		upload = nullptr;
+	}
+}
+
+void Texture::SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
+{
+	assert(SRV != uint32_t(-1));
+	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
+	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
+}
+
+void Texture::SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
+{
+	assert(SRV != uint32_t(-1));
+	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
+	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
 }

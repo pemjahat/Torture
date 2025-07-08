@@ -6,10 +6,20 @@ static D3D12_SAMPLER_DESC SamplerStateDesc[NumSamplerState] = {};
 
 DescriptorHeap srvDescriptorHeap;
 
+static D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange = {};
+
 void InitializeHelper()
 {
 	// Descriptor heap
 	srvDescriptorHeap.Initialize(1024, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+	// Descriptor range
+	srvDescriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	srvDescriptorRange.NumDescriptors = 1024;
+	srvDescriptorRange.BaseShaderRegister = 0;
+	srvDescriptorRange.RegisterSpace = 0;
+	srvDescriptorRange.OffsetInDescriptorsFromTableStart = 0;
+	srvDescriptorRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
 
 	// Sampler state
 	{
@@ -57,6 +67,11 @@ void InitializeHelper()
 void ShutdownHelper()
 {
 	srvDescriptorHeap.Shutdown();
+}
+
+const D3D12_DESCRIPTOR_RANGE1* SRVDescriptorRanges()
+{
+	return &srvDescriptorRange;
 }
 
 D3D12_SAMPLER_DESC GetSamplerState(SamplerState samplerState)

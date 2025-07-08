@@ -23,6 +23,7 @@ struct TextureResource
 	int height = 0;
 	int channels = 0;	// for RGBA is 4
 
+	//Texture texture;
 	ComPtr<ID3D12Resource> texture;
 	ComPtr<ID3D12Resource> uploadBuffer;	// TODO: No need store this
 };
@@ -120,6 +121,9 @@ public:
 	void Initialize();
 	void Shutdown();
 
+	void LoadShader();
+	void CreatePSO();
+
 	HRESULT LoadFromFile(const std::string& filePath);
 	HRESULT UploadGpuResources(
 		ID3D12Device* device,
@@ -153,16 +157,22 @@ private:
 
 	std::vector<MeshResources> m_meshResources;
 
-	ComPtr<ID3D12RootSignature> m_rootSignature;
-	ComPtr<ID3D12PipelineState> m_pipelineState;
-
-	//ComPtr<ID3D12Resource> m_meshSB;
-	//ComPtr<ID3D12Resource> m_meshUploadSB;
-	//ComPtr<ID3D12Resource> m_materialSB;
-	//ComPtr<ID3D12Resource> m_materialUploadSB;
-	StructuredBuffer m_meshSB;
-	StructuredBuffer m_materialSB;
+	ComPtr<ID3D12Resource> m_meshSB;
+	ComPtr<ID3D12Resource> m_meshUploadSB;
+	ComPtr<ID3D12Resource> m_materialSB;
+	ComPtr<ID3D12Resource> m_materialUploadSB;
+	//StructuredBuffer m_meshSB;
+	//StructuredBuffer m_materialSB;
 	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;
+
+	ComPtr<IDxcBlob> m_vertexShader;
+	ComPtr<IDxcBlob> m_pixelShader;
+	ComPtr<IDxcBlob> m_depthVertexShader;
+
+	ComPtr<ID3D12RootSignature> m_rootSignature;
+	ComPtr<ID3D12RootSignature> m_depthRootSignature;
+	ComPtr<ID3D12PipelineState> m_pipelineState;
+	ComPtr<ID3D12PipelineState> m_depthPipelineState;
 };
 
 

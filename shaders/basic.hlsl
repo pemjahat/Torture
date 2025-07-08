@@ -3,7 +3,7 @@
 
 ConstantBuffer<SceneConstantBuffer> sceneCB : register(b0);
 ConstantBuffer<ModelConstants> modelConstants : register(b2);
-StructuredBuffer<MeshData> meshData : register(t0);
+StructuredBuffer<MeshData> meshData : register(t0, space1);
 
 struct VSInput
 {
