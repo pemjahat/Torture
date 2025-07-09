@@ -1,11 +1,5 @@
-#include <SDL.h>
-#include <SDL_syswm.h> // Added for SDL_GetWindowWMInfo
-#include <imgui.h>
-#include <imgui_impl_sdl2.h>
-//#include <cassert>
-//#include <string>
-#include <iostream>
 #include "WindowApplication.h"
+#include "RenderApplication.h"
 
 HWND WindowApplication::m_hwnd = nullptr;
 

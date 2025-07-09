@@ -1,23 +1,27 @@
 #pragma once
 
-#include <d3d12.h>
-#include <dxgi1_6.h>
-#include <d3dcompiler.h>
-#include <wrl/client.h> // For ComPtr
-#include <string>
-#include <SDL.h>
-#include <vector>
+#include "PCH.h"
+
 #include "StepTimer.h"
 #include "Model.h"
 #include "SimpleCamera.h"
+#include "DX12.h"
+#include "GraphicsTypes.h"
 
 using Microsoft::WRL::ComPtr;
 
+struct CommandLineArgs
+{
+    int resX = 800;
+    int resY = 600;
+    std::string modelPath = "content/Sponza/Sponza.gltf";
+    std::string exePath = "";
+};
 
 class RenderApplication
 {
 public:
-    RenderApplication(UINT width, UINT height, const char* argv);
+    RenderApplication(int argc, char** argv);
 
     void OnInit(SDL_Window* window);
     void OnUpdate();
@@ -32,14 +36,15 @@ public:
 
 private:
     static const UINT FrameCount = 2;
-    static const UINT SrvCbvHeapSize = 256;
-
+    
     struct SceneConstantBuffer
     {
         XMFLOAT4X4 World;
         XMFLOAT4X4 WorldView;
         XMFLOAT4X4 WorldViewProj;
-        float padding[16];  // padd to 256byte aligned
+        XMFLOAT2 InvTextureSize;
+        XMFLOAT2 HiZDimension;
+        //float padding[12];  // padd to 256byte aligned
     };
 
     struct LightData
@@ -50,41 +55,31 @@ private:
         float padding;
     };
 
-    
-
     // Pipeline object
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_d3dDevice;
-    ComPtr<ID3D12Resource> m_renderTarget[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_commandAllocator;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
+    ComPtr<IDXGISwapChain3> m_swapChain;    
 
-    ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
-    ComPtr<ID3D12DescriptorHeap> m_srvDescHeap;
-    ComPtr<ID3D12DescriptorHeap> m_samplerDescHeap;
-    ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
-
-    D3D12_CPU_DESCRIPTOR_HANDLE m_dsvCpuHandle;
-
-    D3D12_CPU_DESCRIPTOR_HANDLE m_cbvCpuDescHandle;
-    D3D12_GPU_DESCRIPTOR_HANDLE m_cbvGpuDescHandle;
-
-    D3D12_CPU_DESCRIPTOR_HANDLE m_lightCpuDescHandle;
-
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
-    UINT m_rtvDescriptorSize;
+    ComPtr<ID3D12DescriptorHeap> m_imguiDescHeap;
 
     // Render app resources
-    ComPtr<ID3D12Resource> m_depth;
-    ComPtr<ID3D12Resource> m_constantBuffer;
-    ComPtr<ID3D12Resource> m_lightCB;
+    DepthBuffer m_depthBuffer;
+    RenderTexture m_renderTarget[FrameCount];
+
+    //ComPtr<ID3D12Resource> m_depth;
+    ConstantBuffer m_sceneCB;
+    ConstantBuffer m_lightCB;
     SceneConstantBuffer m_constantBufferData;    
-    UINT8* m_cbvDataBegin;
-    UINT8* m_lightDataBegin;
+
+    // HiZ Passes resource
+    ComPtr<ID3D12Resource> m_hiZBuffer;
+    ComPtr<ID3D12RootSignature> m_hiZRootSignature;
+    ComPtr<ID3D12PipelineState> m_hiZPipelineState;
+    D3D12_CPU_DESCRIPTOR_HANDLE m_hiZCpuHandle;
+    D3D12_GPU_DESCRIPTOR_HANDLE m_hiZGpuHandle;
+    D3D12_CPU_DESCRIPTOR_HANDLE m_hiZDepthSrvCpuHandle;
+    D3D12_GPU_DESCRIPTOR_HANDLE m_hiZDepthSrvGpuHandle;
+    UINT m_hiZDescriptorSize;
 
     // Synchronization
     UINT m_frameIndex;
@@ -99,7 +94,7 @@ private:
 
     // Camera
     StepTimer m_timer;
-    SimpleCamera m_camera;
+    SimpleCamera m_camera;    
     float m_moveSpeed;
 
     // Light
@@ -112,6 +107,7 @@ private:
 
     // Root assets path. (helper)
     std::string m_executablePath;
+    std::string m_modelPath;
 
     std::wstring GetAssetFullPath(const std::string& relativePath);
 

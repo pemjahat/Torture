@@ -1,39 +1,21 @@
-// basic.hlsl
-cbuffer SceneConstantBuffer : register(b0)
-{
-    float4x4 World;
-    float4x4 WorldView;
-    float4x4 WorldViewProj;
-    float4 padding[4];
-};
+// basic.hlsl (depth only)
+#include "common.hlsl"
+
+ConstantBuffer<SceneConstantBuffer> sceneCB : register(b0);
+ConstantBuffer<ModelConstants> modelConstants : register(b2);
+StructuredBuffer<MeshData> meshData : register(t0);
 
 struct VSInput
 {
-    float4 position : POSITION;
-    float2 uv : TEXCOORD;
+    float3 position : POSITION;
 };
 
-struct PSInput
+float4 VSMain(VSInput input) : SV_Position
 {
-    float4 position : SV_POSITION;
-    float2 uv : TEXCOORD;
-};
-
-Texture2D g_texture : register(t0);
-SamplerState g_sampler : register(s0);
-
-PSInput VSMain(VSInput input)
-{
-    PSInput output;
+    MeshData mesh = meshData[modelConstants.meshIndex];
     
-    output.position = mul(float4(input.position.xyz, 1.f), WorldViewProj);
-    //output.position = input.position;
-    output.uv = input.uv;
-    return output;
-}
-
-float4 PSMain(PSInput input) : SV_TARGET
-{
-    //return input.color;
-    return g_texture.Sample(g_sampler, input.uv);
+    float4 pos = float4(input.position.xyz, 1.f);
+    pos = mul(pos, mesh.meshTransform);
+    pos = mul(pos, sceneCB.WorldViewProj);
+    return pos;
 }

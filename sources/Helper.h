@@ -1,21 +1,60 @@
 #pragma once
 
+#include "PCH.h"
+#include "GraphicsTypes.h"
 #include <cassert>
-#include <windows.h>
-#include <string>
 
-using Microsoft::WRL::ComPtr;
+enum class SamplerState
+{
+    Linear = 0,
+    LinearClamp,
+    Point,
+    MaxSampler
+};
+
+enum class ShaderType
+{
+    Vertex = 0,
+    Pixel,
+    Compute,
+    MaxShader
+};
+
+// External
+extern DescriptorHeap rtvDescriptorHeap;
+extern DescriptorHeap dsvDescriptorHeap;
+extern DescriptorHeap srvDescriptorHeap;
+
+// Once
+void InitializeHelper();
+void ShutdownHelper();
+
+const D3D12_DESCRIPTOR_RANGE1* SRVDescriptorRanges();
+
+// States
+D3D12_SAMPLER_DESC GetSamplerState(SamplerState samplerState);
+D3D12_STATIC_SAMPLER_DESC GetStaticSamplerState(SamplerState samplerState, uint32_t shaderRegister = 0, uint32_t registerSpace = 0);
+D3D12_STATIC_SAMPLER_DESC ConvertToStaticSampler(const D3D12_SAMPLER_DESC samplerDesc, uint32_t shaderRegister, uint32_t registerSpace);
+
+//
+void SrvSetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter);
+void SrvSetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter);
+
+void CreateRootSignature(Microsoft::WRL::ComPtr<ID3D12RootSignature>& rootSignature, const D3D12_ROOT_SIGNATURE_DESC1& desc);
+void CompileShaderFromFile(const std::wstring& filePath, const std::wstring& includePath, Microsoft::WRL::ComPtr<IDxcBlob>& shaderBlob, ShaderType type);
 
 struct DescriptorHeapAllocator
 {
-    ComPtr<ID3D12DescriptorHeap> Heap = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> Heap = nullptr;
     D3D12_DESCRIPTOR_HEAP_TYPE  HeapType = D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
     D3D12_CPU_DESCRIPTOR_HANDLE HeapStartCpu;
     D3D12_GPU_DESCRIPTOR_HANDLE HeapStartGpu;
     UINT    HeapHandleIncrement;
     std::vector<int> FreeIndices;
 
-    void Create(ComPtr<ID3D12Device> device, ComPtr<ID3D12DescriptorHeap> heap)
+    void Create(
+        Microsoft::WRL::ComPtr<ID3D12Device> device, 
+        Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap)
     {
         Heap = heap;
         D3D12_DESCRIPTOR_HEAP_DESC desc = heap->GetDesc();
@@ -49,23 +88,6 @@ struct DescriptorHeapAllocator
         FreeIndices.push_back(cpu_idx);
     }
 };
-
-inline void CheckHRESULT(HRESULT hr = S_OK)
-{
-    if (FAILED(hr))
-    {
-        std::string fullMessage = "(HRESULT: 0x" + std::to_string(hr) + ")";
-        assert(false && fullMessage.c_str());
-    }
-}
-
-inline std::string WStringToString(const std::wstring& wstr)
-{
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
-    std::string str(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.size()), &str[0], size_needed, nullptr, nullptr);
-    return str;
-}
 
 //void LogError(const char* message, HRESULT hr = S_OK)
 //{

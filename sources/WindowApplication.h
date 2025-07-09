@@ -1,6 +1,8 @@
 #pragma once
 
-#include "RenderApplication.h"
+#include "PCH.h"
+
+class RenderApplication;
 
 class WindowApplication
 {

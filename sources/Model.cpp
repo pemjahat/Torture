@@ -1,26 +1,45 @@
 #include "Model.h"
 
-#include "d3dx12.h"
-#include <tiny_gltf.h>
-
 using namespace DirectX;
 
-Model::Model()
+// Tinygltf
+#include <tiny_gltf.h>
+#include "Utility.h"
+#include "DX12.h"
+
+enum ModelRootParams
 {
+    Model_GlobalSRV,
+    Model_SceneCBuffer,
+    Model_LightCBuffer,
+    Model_ModelConstant,
+    Model_ModelSBuffer,
+    Model_MaxRootParams
+};
+
+void Model::Initialize()
+{
+    // Load shaders
     
+    // Create Root Signature
 }
 
-Model::~Model()
+void Model::Shutdown()
 {
-    // Unmap vertex + index buffer
-    /*if (m_vertexBuffer && m_mappedVertexBufferData)
+    m_pipelineState = nullptr;
+    m_depthPipelineState = nullptr;
+
+    m_rootSignature = nullptr;
+    m_depthRootSignature = nullptr;
+
+    for (size_t i = 0; i < m_model.meshes.size(); ++i)
     {
-        m_vertexBuffer->Unmap(0, nullptr);
+        //auto& mesh = m_model.meshes[i];
+        auto& resource = m_meshResources[i];
+
+        resource.vertexBuffer.Shutdown();
+        resource.indexBuffer.Shutdown();
     }
-    if (m_indexBuffer && m_mappedIndexBufferData)
-    {
-        m_indexBuffer->Unmap(0, nullptr);
-    }*/
 }
 
 //
@@ -62,35 +81,6 @@ XMMATRIX GetNodeTransform(const tinygltf::Node& node)
 {
     XMMATRIX transform = XMMatrixIdentity();
 
-    // Translation
-    if (node.translation.size() == 3)
-    {
-        transform *= XMMatrixTranslation(
-            static_cast<float>(node.translation[0]),
-            static_cast<float>(node.translation[1]),
-            static_cast<float>(node.translation[2]));
-    }
-
-    // Rotation (quaternion: x, y, z, 0
-    if (node.rotation.size() == 4)
-    {
-        XMVECTOR quat = XMVectorSet(
-            static_cast<float>(node.rotation[0]),
-            static_cast<float>(node.rotation[1]),
-            static_cast<float>(node.rotation[2]),
-            static_cast<float>(node.rotation[3]));
-        transform *= XMMatrixRotationQuaternion(quat);
-    }
-
-    // Scale
-    if (node.scale.size() == 3)
-    {
-        transform *= XMMatrixScaling(
-            static_cast<float>(node.scale[0]),
-            static_cast<float>(node.scale[1]),
-            static_cast<float>(node.scale[2]));
-    }
-
     // Matrix
     if (node.matrix.size() == 16)
     {
@@ -101,20 +91,51 @@ XMMATRIX GetNodeTransform(const tinygltf::Node& node)
         }
         transform = XMLoadFloat4x4(&mat);
     }
+    else
+    {
+        XMVECTOR translation = XMVectorSet(0.f, 0.f, 0.f, 0.f);
+        XMVECTOR rotation = XMVectorSet(0.f, 0.f, 0.f, 1.f);
+        XMVECTOR scale = XMVectorSet(1.f, 1.f, 1.f, 0.f);
+
+        // Translation
+        if (!node.translation.empty())
+        {
+            translation = XMVectorSet(
+                static_cast<float>(node.translation[0]),
+                static_cast<float>(node.translation[1]),
+                static_cast<float>(node.translation[2]),
+                0.f);
+        }
+
+        // Rotation (quaternion: x, y, z, 0
+        if (!node.rotation.empty())
+        {
+            rotation = XMVectorSet(
+                static_cast<float>(node.rotation[0]),
+                static_cast<float>(node.rotation[1]),
+                static_cast<float>(node.rotation[2]),
+                static_cast<float>(node.rotation[3]));
+        }
+
+        // Scale
+        if (!node.scale.empty())
+        {
+            scale = XMVectorSet(
+                static_cast<float>(node.scale[0]),
+                static_cast<float>(node.scale[1]),
+                static_cast<float>(node.scale[2]),
+                0.f);
+        }
+
+        // Compute TRS
+        XMMATRIX tMatrix = XMMatrixTranslationFromVector(translation);
+        XMMATRIX rMatrix = XMMatrixRotationQuaternion(rotation);
+        XMMATRIX sMatrix = XMMatrixScalingFromVector(scale);
+        transform = sMatrix * rMatrix * tMatrix;
+    }
 
     return transform;
 }
-//
-//void LoadTexture(const tinygltf::Model& model, int texIndex, TextureData& textureData)
-//{
-//    const tinygltf::Texture& texture = model.textures[texIndex];
-//    const tinygltf::Image& image = model.images[texture.source];
-//
-//    textureData.pixels = image.image;
-//    textureData.width = image.width;
-//    textureData.height = image.height;
-//    textureData.channels = image.component;
-//}
 
 void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& parentTransform, ModelData& modelData)
 {
@@ -140,7 +161,8 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
         const auto& mesh = model.meshes[node.mesh];
         MeshData meshData;
         // Row-Major vs Colum-Major issue
-        XMStoreFloat4x4(&meshData.transform, XMMatrixTranspose(nodeTransform));
+        //XMStoreFloat4x4(&meshData.transform, XMMatrixTranspose(nodeTransform));
+        XMStoreFloat4x4(&meshData.transform, nodeTransform);
 
         for (const auto& primitive : mesh.primitives)
         {
@@ -159,6 +181,19 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                     const float* postData = reinterpret_cast<const float*>(bufferData + i * byteStride);
                     meshData.vertices[i].Position = XMFLOAT3(postData[0], postData[1], postData[2]);
                 }
+                
+                // AABB
+                XMFLOAT3 min = XMFLOAT3(
+                    static_cast<float>(posAccessor.minValues[0]),
+                    static_cast<float>(posAccessor.minValues[1]),
+                    static_cast<float>(posAccessor.minValues[2]));
+
+                XMFLOAT3 max = XMFLOAT3(
+                    static_cast<float>(posAccessor.maxValues[0]),
+                    static_cast<float>(posAccessor.maxValues[1]),
+                    static_cast<float>(posAccessor.maxValues[2]));
+
+                BoundingBox::CreateFromPoints(meshData.boundingBox, XMLoadFloat3(&min), XMLoadFloat3(&max));
             }
 
             // Get Normal
@@ -355,11 +390,203 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
 	return S_OK;
 }
 
-HRESULT Model::UploadGpuResources(
-	ID3D12Device* device,
-    DescriptorHeapAllocator& heapAlloc, // for texture/buffer    
-    ID3D12DescriptorHeap* samplerHeap,	// For sampler
-	ID3D12GraphicsCommandList* cmdList)
+void Model::LoadShader(const std::filesystem::path& shaderPath )
+{
+    // Load shaders
+    std::filesystem::path mainShader = shaderPath / "basic_color.hlsl";
+    std::filesystem::path depthShader = shaderPath / "basic.hlsl";
+
+    CompileShaderFromFile(
+        std::filesystem::absolute(mainShader).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        m_vertexShader,
+        ShaderType::Vertex);
+
+    CompileShaderFromFile(
+        std::filesystem::absolute(mainShader).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        m_pixelShader,
+        ShaderType::Pixel);
+
+    CompileShaderFromFile(
+        std::filesystem::absolute(depthShader).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        m_depthVertexShader,
+        ShaderType::Vertex);
+
+    // Root signature (main pass)
+    {
+        D3D12_ROOT_PARAMETER1 rootParameters[Model_MaxRootParams] = {};
+
+        // Global srv used to bind bindless texture
+        rootParameters[Model_GlobalSRV].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[Model_GlobalSRV].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        rootParameters[Model_GlobalSRV].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
+        rootParameters[Model_GlobalSRV].DescriptorTable.NumDescriptorRanges = 1;
+
+        // Scene + Light Constant Buffer
+        rootParameters[Model_SceneCBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParameters[Model_SceneCBuffer].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        rootParameters[Model_SceneCBuffer].Descriptor.RegisterSpace = 0;
+        rootParameters[Model_SceneCBuffer].Descriptor.ShaderRegister = 0;
+        rootParameters[Model_SceneCBuffer].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+        rootParameters[Model_LightCBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParameters[Model_LightCBuffer].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        rootParameters[Model_LightCBuffer].Descriptor.RegisterSpace = 0;
+        rootParameters[Model_LightCBuffer].Descriptor.ShaderRegister = 1;
+        rootParameters[Model_LightCBuffer].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+        // Model Constant
+        rootParameters[Model_ModelConstant].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        rootParameters[Model_ModelConstant].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[Model_ModelConstant].Constants.Num32BitValues = 2;
+        rootParameters[Model_ModelConstant].Constants.RegisterSpace = 0;
+        rootParameters[Model_ModelConstant].Constants.ShaderRegister = 2;
+
+        // Structured buffer
+        D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange[1] = {};
+
+        // Descriptor range
+        srvDescriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srvDescriptorRange[0].NumDescriptors = 2;
+        srvDescriptorRange[0].BaseShaderRegister = 0;
+        srvDescriptorRange[0].RegisterSpace = 0;
+        srvDescriptorRange[0].OffsetInDescriptorsFromTableStart = 0;
+        srvDescriptorRange[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
+
+        rootParameters[Model_ModelSBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[Model_ModelSBuffer].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[Model_ModelSBuffer].DescriptorTable.pDescriptorRanges = srvDescriptorRange;
+        rootParameters[Model_ModelSBuffer].DescriptorTable.NumDescriptorRanges = 1;
+
+        // Static sampler
+        D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
+        staticSampler[0] = GetStaticSamplerState(SamplerState::Linear, 0, 0);
+
+        // Root pipeline
+        D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
+        rootSignatureDesc.NumParameters = _countof(rootParameters);
+        rootSignatureDesc.pParameters = rootParameters;
+        rootSignatureDesc.NumStaticSamplers = _countof(staticSampler);
+        rootSignatureDesc.pStaticSamplers = staticSampler;
+        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        CreateRootSignature(m_rootSignature, rootSignatureDesc);
+    }
+ 
+    // Root Signature (depth pre-pass)
+    {
+        D3D12_ROOT_PARAMETER1 rootParameters[3] = {};
+
+        // Scene Constant Buffer
+        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        rootParameters[0].Descriptor.RegisterSpace = 0;
+        rootParameters[0].Descriptor.ShaderRegister = 0;
+        rootParameters[0].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+        // Model Constant
+        rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[1].Constants.Num32BitValues = 2;
+        rootParameters[1].Constants.RegisterSpace = 0;
+        rootParameters[1].Constants.ShaderRegister = 2;
+
+        // Structured buffer
+        D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange = {};
+
+        // Descriptor range
+        srvDescriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srvDescriptorRange.NumDescriptors = 1;
+        srvDescriptorRange.BaseShaderRegister = 0;
+        srvDescriptorRange.RegisterSpace = 0;
+        srvDescriptorRange.OffsetInDescriptorsFromTableStart = 0;
+        srvDescriptorRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
+
+        rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[2].DescriptorTable.pDescriptorRanges = &srvDescriptorRange;
+        rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
+
+        // Root pipeline
+        D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
+        rootSignatureDesc.NumParameters = _countof(rootParameters);
+        rootSignatureDesc.pParameters = rootParameters;
+        rootSignatureDesc.NumStaticSamplers = 0;
+        rootSignatureDesc.pStaticSamplers = nullptr;
+        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        CreateRootSignature(m_depthRootSignature, rootSignatureDesc);
+    }
+}
+
+void Model::CreatePSO()
+{
+    D3D12_RASTERIZER_DESC rasterizerDesc = {};
+    rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+    rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
+    rasterizerDesc.DepthClipEnable = TRUE;
+    rasterizerDesc.MultisampleEnable = FALSE;
+    rasterizerDesc.FrontCounterClockwise = TRUE; // Matches glTF CCW convention
+
+    D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
+    depthStencilDesc.DepthEnable = true;
+    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+    // Main pass PSO
+    {
+        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+        {
+            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+        };
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_rootSignature.Get();
+        psoDesc.VS = { m_vertexShader->GetBufferPointer(), m_vertexShader->GetBufferSize() };
+        psoDesc.PS = { m_pixelShader->GetBufferPointer(), m_pixelShader->GetBufferSize() };
+        psoDesc.RasterizerState = rasterizerDesc; // CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT
+        psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
+        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        psoDesc.NumRenderTargets = 1;
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+        psoDesc.SampleDesc.Count = 1;
+        psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
+    }
+
+    // Depth only PSO
+    {
+        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+        {
+            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        };
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_depthRootSignature.Get();
+        psoDesc.VS = { m_depthVertexShader->GetBufferPointer(), m_depthVertexShader->GetBufferSize() };
+        psoDesc.RasterizerState = rasterizerDesc; // CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT
+        psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
+        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        psoDesc.NumRenderTargets = 0;
+        psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+        psoDesc.SampleDesc.Count = 1;
+        psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_depthPipelineState)));
+    }
+}
+
+HRESULT Model::UploadGpuResources()
 {
     if (m_model.meshes.empty())
     {
@@ -373,205 +600,114 @@ HRESULT Model::UploadGpuResources(
         auto& mesh = m_model.meshes[i];
         auto& resource = m_meshResources[i];
 
-        // Create vertex buffer (upload heap)
-        UINT vertexBufferSize = static_cast<UINT>(mesh.vertices.size() * sizeof(VertexData));
+        // Create vertex buffer
+        StructuredBufferInit sbi;
+        sbi.stride = sizeof(VertexData);
+        sbi.numElements = mesh.vertices.size();
+        sbi.initData = mesh.vertices.data();
+        sbi.initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+        sbi.name = L"ModelVertexBuffer";
 
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(&resource.vertexBuffer)));
+        resource.vertexBuffer.Initialize(sbi);
+        
+        // Create index buffer
+        FormattedBufferInit fbi;
+        fbi.format = DXGI_FORMAT_R32_UINT;
+        fbi.bitSize = 32;
+        fbi.numElements = mesh.indices.size();
+        fbi.initData = mesh.indices.data();
+        fbi.initState = D3D12_RESOURCE_STATE_INDEX_BUFFER;
+        fbi.name = L"ModelIndexBuffer";
 
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&resource.vertexUploadBuffer)));
-
-        void* mappedData;
-        resource.vertexUploadBuffer->Map(0, nullptr, &mappedData);
-        memcpy(mappedData, mesh.vertices.data(), vertexBufferSize);
-        resource.vertexUploadBuffer->Unmap(0, nullptr);
-
-        cmdList->CopyBufferRegion(resource.vertexBuffer.Get(), 0, resource.vertexUploadBuffer.Get(), 0, vertexBufferSize);
-        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-            resource.vertexBuffer.Get(), 
-            D3D12_RESOURCE_STATE_COPY_DEST, 
-            D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
-        cmdList->ResourceBarrier(1, &barrier);
-
-        resource.vertexBufferView.BufferLocation = resource.vertexBuffer->GetGPUVirtualAddress();
-        resource.vertexBufferView.SizeInBytes = vertexBufferSize;
-        resource.vertexBufferView.StrideInBytes = sizeof(VertexData);
-
-        // Create index buffer (upload heap)
-        UINT indexBufferSize = static_cast<UINT>(mesh.indices.size() * sizeof(uint32_t));
-
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(&resource.indexBuffer)));
-
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&resource.indexUploadBuffer)));
-
-        resource.indexUploadBuffer->Map(0, nullptr, &mappedData);
-        memcpy(mappedData, mesh.indices.data(), indexBufferSize);
-        resource.indexUploadBuffer->Unmap(0, nullptr);
-
-        cmdList->CopyBufferRegion(resource.indexBuffer.Get(), 0, resource.indexUploadBuffer.Get(), 0, indexBufferSize);
-        barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-            resource.indexBuffer.Get(),
-            D3D12_RESOURCE_STATE_COPY_DEST,
-            D3D12_RESOURCE_STATE_INDEX_BUFFER);
-        cmdList->ResourceBarrier(1, &barrier);
-
-        resource.indexBufferView.BufferLocation = resource.indexBuffer->GetGPUVirtualAddress();
-        resource.indexBufferView.SizeInBytes = indexBufferSize;
-        resource.indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+        resource.indexBuffer.Initialize(fbi);
     }
     
-    // Create buffer for material data (large enough to handle multi meshes)
-    {
-        UINT numMeshes = m_meshResources.size();
-        const UINT materialCBSize = (sizeof(MaterialConstantBuffer) + 255) & ~255;
-        const UINT materialBufferSize = materialCBSize * numMeshes;  // Align to 256 byte
-        CheckHRESULT(device->CreateCommittedResource(
-            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-            D3D12_HEAP_FLAG_NONE,
-            &CD3DX12_RESOURCE_DESC::Buffer(materialBufferSize),
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&m_materialCB)));
-
-        for (size_t i = 0; i < m_model.meshes.size(); ++i)
-        {
-            auto& resource = m_meshResources[i];
-
-            D3D12_CPU_DESCRIPTOR_HANDLE cpuDescHandle;
-            D3D12_GPU_DESCRIPTOR_HANDLE gpuDescHandle;
-            heapAlloc.Alloc(&cpuDescHandle, &gpuDescHandle);
-
-            D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
-            cbvDesc.BufferLocation = m_materialCB->GetGPUVirtualAddress() + i * materialCBSize;
-            cbvDesc.SizeInBytes = materialCBSize;
-            device->CreateConstantBufferView(&cbvDesc, cpuDescHandle);
-            resource.constantBufferView = gpuDescHandle;
-        }
-    }
-
     // Create texture
     if (!m_model.images.empty())
     {
         // Texture resources
         for (TextureResource& texResource : m_model.images)
         {
-            D3D12_RESOURCE_DESC textureDesc = {};
-            textureDesc.MipLevels = 1;
-            textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            textureDesc.Width = texResource.width;
-            textureDesc.Height = texResource.height;
-            textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-            textureDesc.DepthOrArraySize = 1;
-            textureDesc.SampleDesc.Count = 1;
-            textureDesc.SampleDesc.Quality = 0;
-            textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-
-            CheckHRESULT(device->CreateCommittedResource(
-                &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-                D3D12_HEAP_FLAG_NONE,
-                &textureDesc,
-                D3D12_RESOURCE_STATE_COPY_DEST,
-                nullptr,
-                IID_PPV_ARGS(&texResource.texture)));
-
-            // Staging buffer to upload
-            const UINT64 uploadBufferSize = GetRequiredIntermediateSize(texResource.texture.Get(), 0, 1);
-
-            CheckHRESULT(device->CreateCommittedResource(
-                &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-                D3D12_HEAP_FLAG_NONE,
-                &CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
-                D3D12_RESOURCE_STATE_GENERIC_READ,
-                nullptr,
-                IID_PPV_ARGS(&texResource.uploadBuffer)));
-
-            D3D12_SUBRESOURCE_DATA textureResourceData = {};
-            textureResourceData.pData = &texResource.pixels[0];
-            textureResourceData.RowPitch = texResource.width * sizeof(float);
-            textureResourceData.SlicePitch = textureResourceData.RowPitch * texResource.height;
-
-            UpdateSubresources(cmdList, texResource.texture.Get(), texResource.uploadBuffer.Get(), 0, 0, 1, &textureResourceData);
-
-            D3D12_RESOURCE_BARRIER barrier = {};
-            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource = texResource.texture.Get();
-            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-            // Need this if descriptor table is shared = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            cmdList->ResourceBarrier(1, &barrier);
+            TextureInit ti;
+            ti.width = texResource.width;
+            ti.height = texResource.height;
+            ti.initData = texResource.pixels.data();
+            
+            texResource.texture.Initialize(ti);
         }
 
         // Texture views (load from Materials)
+        for (TextureView& texView : m_model.textures)
+        {
+            TextureResource& texResource = m_model.images[texView.resourceIndex];
+            texView.viewIndex = texResource.texture.SRV;
+        }
+    }
+
+    // Create mesh structured buffer
+    std::vector<MeshStructuredBuffer> meshes;
+    {
+        for (const MeshData& mesh : m_model.meshes)
+        {
+            MeshStructuredBuffer meshSB;
+            DirectX::BoundingBox boundingBox;
+
+            // Transpose is for purpose row major(gltf) - column major(directX)
+            XMStoreFloat4x4(&meshSB.meshTransform, XMMatrixTranspose(XMLoadFloat4x4(&mesh.transform)));
+
+            // Transform bounding box to world space
+            XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
+            BoundingBox worldBox;
+            mesh.boundingBox.Transform(worldBox, world);
+
+            meshSB.centerBound = worldBox.Center;
+            meshSB.extentsBound = worldBox.Extents;
+            meshes.push_back(std::move(meshSB));
+        }
+
+        StructuredBufferInit sbi;
+        sbi.stride = sizeof(MeshStructuredBuffer);
+        sbi.numElements = meshes.size();
+        sbi.initData = meshes.data();
+        sbi.initState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        sbi.name = L"MeshStructuredBuffer";
+
+        m_meshSB.Initialize(sbi);
+    }
+
+    // Create material structured buffer
+    std::vector<MaterialStructuredBuffer> materials;
+    {
+        // Repeated information on material
+        const bool useVertexColor = m_model.hasVertexColor;
+        const bool useTangent = m_model.hasTangent;
+
         for (const MaterialData& material : m_model.materials)
         {
-            // Order matter (Albedo - t0, Metallic -  t1, Normal - t2)
-            if (material.albedoTextureIndex >= 0)
-            {
-                TextureView& texView = m_model.textures[material.albedoTextureIndex];
-                
-                D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-                srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-                srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-                srvDesc.Texture2D.MipLevels = 1;
-                heapAlloc.Alloc(&texView.srvTextureCpuHandle, &texView.srvTextureGpuHandle);
+            MaterialStructuredBuffer matSB;
 
-                TextureResource& texResource = m_model.images[texView.resourceIndex];
-                device->CreateShaderResourceView(texResource.texture.Get(), &srvDesc, texView.srvTextureCpuHandle);
-            }
-            else if (material.metallicRoughnessTextureIndex >= 0)
-            {
-                TextureView& texView = m_model.textures[material.metallicRoughnessTextureIndex];
+            matSB.useVertexColor = useVertexColor;
+            matSB.useTangent = useTangent;
+            matSB.metallicFactor = material.metallicFactor;
+            matSB.roughnessFactor = material.roughnessFactor;
 
-                D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-                srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-                srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-                srvDesc.Texture2D.MipLevels = 1;
-                heapAlloc.Alloc(&texView.srvTextureCpuHandle, &texView.srvTextureGpuHandle);
+            matSB.albedoTextureIndex = (material.albedoTextureIndex >= 0) ? m_model.textures[material.albedoTextureIndex].viewIndex : -1;
+            matSB.metallicTextureIndex = (material.metallicRoughnessTextureIndex >= 0) ? m_model.textures[material.metallicRoughnessTextureIndex].viewIndex : -1;
+            matSB.normalTextureIndex = (material.normalTextureIndex >= 0) ? m_model.textures[material.normalTextureIndex].viewIndex : -1;
 
-                TextureResource& texResource = m_model.images[texView.resourceIndex];
-                device->CreateShaderResourceView(texResource.texture.Get(), &srvDesc, texView.srvTextureCpuHandle);
-            }
-            else if (material.normalTextureIndex)
-            {
-                TextureView& texView = m_model.textures[material.normalTextureIndex];
+            matSB.baseColorFactor = material.baseColorFactor;
 
-                D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-                srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-                srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-                srvDesc.Texture2D.MipLevels = 1;
-                heapAlloc.Alloc(&texView.srvTextureCpuHandle, &texView.srvTextureGpuHandle);
-
-                TextureResource& texResource = m_model.images[texView.resourceIndex];
-                device->CreateShaderResourceView(texResource.texture.Get(), &srvDesc, texView.srvTextureCpuHandle);
-            }
+            materials.push_back(std::move(matSB));
         }
+
+        StructuredBufferInit sbi;
+        sbi.stride = sizeof(MaterialStructuredBuffer);
+        sbi.numElements = materials.size();
+        sbi.initData = materials.data();
+        sbi.initState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        sbi.name = L"MaterialStructuredBuffer";
+
+        m_materialSB.Initialize(sbi);
     }
 
     // Create sampler (create dummy if it's empty)
@@ -595,84 +731,114 @@ HRESULT Model::UploadGpuResources(
         samplerDesc.MinLOD = 0.f;
         samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
 
-        samplerData.samplerCpuHandle = samplerHeap->GetCPUDescriptorHandleForHeapStart();
+        // Move to static sampler
+        /*samplerData.samplerCpuHandle = samplerHeap->GetCPUDescriptorHandleForHeapStart();
         samplerData.samplerGpuHandle = samplerHeap->GetGPUDescriptorHandleForHeapStart();
-        device->CreateSampler(&samplerDesc, samplerData.samplerCpuHandle);
+        device->CreateSampler(&samplerDesc, samplerData.samplerCpuHandle);*/
     }
     return S_OK;
 }
 
-HRESULT Model::RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList)
+HRESULT Model::RenderDepthOnly(
+    const ConstantBuffer* sceneCB,
+    const BoundingFrustum& frustum)
 {
     if (m_model.meshes.empty())
     {
         return E_FAIL;
     }
 
-    void* mappedData;
-    UINT materialCBSize = (sizeof(MaterialConstantBuffer) + 255) & ~255;
-    m_materialCB->Map(0, nullptr, &mappedData);
-    for (size_t i = 0; i < m_model.meshes.size(); ++i)
-    {
-        const auto& mesh = m_model.meshes[i];
-        const auto& resource = m_meshResources[i];
+    commandList->SetPipelineState(m_depthPipelineState.Get());
+    commandList->SetGraphicsRootSignature(m_depthRootSignature.Get());
 
-        MaterialConstantBuffer materialCB = {};
-        materialCB.meshTransform = mesh.transform;
-        materialCB.useVertexColor = m_model.hasVertexColor ? 1 : 0;
-        materialCB.useTangent = m_model.hasTangent ? 1 : 0;
-
-        // Find material
-        const auto& material = m_model.materials[mesh.materialIndex];
-
-        materialCB.metallicFactor = material.metallicFactor;
-        materialCB.roughnessFactor = material.roughnessFactor;
-        materialCB.hasAlbedoMap = (material.albedoTextureIndex >= 0) ? 1 : 0;
-        materialCB.hasMetallicRoughnessMap = (material.metallicRoughnessTextureIndex >= 0) ? 1 : 0;
-        materialCB.hasNormalMap = (material.normalTextureIndex >= 0) ? 1 : 0;
-        materialCB.baseColorFactor = material.baseColorFactor;
-
-        memcpy(static_cast<char*>(mappedData) + i * materialCBSize, &materialCB, sizeof(MaterialConstantBuffer));
-    }
-    m_materialCB->Unmap(0, nullptr);
-
-    // descriptor table
-    if (!m_model.samplers.empty())
-    {
-        // take the first one for now
-        auto& samplerData = m_model.samplers[0];
-        cmdList->SetGraphicsRootDescriptorTable(3, samplerData.samplerGpuHandle);
-    }
+    // Bind srv descriptor heaps contain sb/srv
+    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
+    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+    sceneCB->SetAsGfxRootParameter(commandList.Get(), 0);
+    m_meshSB.SetAsGfxRootParameter(commandList.Get(), 2);
 
     for (size_t i = 0; i < m_model.meshes.size(); ++i)
     {
         const auto& mesh = m_model.meshes[i];
         const auto& resource = m_meshResources[i];
 
-        // Find material
-        const auto& material = m_model.materials[mesh.materialIndex];
-        if (material.albedoTextureIndex >= 0)
+        XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
+
+        // transform bounding box to world space
+        BoundingBox worldBox;
+        mesh.boundingBox.Transform(worldBox, world);
+
+        if (frustum.Contains(worldBox) == DISJOINT)
         {
-            const auto& texView = m_model.textures[material.albedoTextureIndex];
-            cmdList->SetGraphicsRootDescriptorTable(0, texView.srvTextureGpuHandle);
+            continue;
         }
-        else if (material.metallicRoughnessTextureIndex >= 0)
-        {
-            const auto& texView = m_model.textures[material.metallicRoughnessTextureIndex];
-            cmdList->SetGraphicsRootDescriptorTable(1, texView.srvTextureGpuHandle);
-        }
-        else if (material.normalTextureIndex >= 0)
-        {
-            const auto& texView = m_model.textures[material.normalTextureIndex];
-            cmdList->SetGraphicsRootDescriptorTable(2, texView.srvTextureGpuHandle);
-        }
-        cmdList->SetGraphicsRootDescriptorTable(5, resource.constantBufferView);
+
+        // Constant
+        ModelConstants constant = { static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex) };
+        commandList->SetGraphicsRoot32BitConstants(1, 2, &constant, 0);
 
         // Set vertex and index buffers
-        cmdList->IASetVertexBuffers(0, 1, &resource.vertexBufferView);
-        cmdList->IASetIndexBuffer(&resource.indexBufferView);
-        cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        cmdList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+        commandList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
+        commandList->IASetIndexBuffer(&resource.indexBuffer.IBView());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+    }
+
+    return S_OK;
+}
+
+HRESULT Model::RenderBasePass(
+    const ConstantBuffer* sceneCB,
+    const ConstantBuffer* lightCB,
+    const BoundingFrustum& frustum)
+{
+    if (m_model.meshes.empty())
+    {
+        return E_FAIL;
+    }
+    
+    commandList->SetPipelineState(m_pipelineState.Get());
+    commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+
+    // Bind srv descriptor heaps contain texture srv
+    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
+    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+    SrvSetAsGfxRootParameter(commandList.Get(), Model_GlobalSRV);
+    sceneCB->SetAsGfxRootParameter(commandList.Get(), Model_SceneCBuffer);
+    lightCB->SetAsGfxRootParameter(commandList.Get(), Model_LightCBuffer);
+    m_meshSB.SetAsGfxRootParameter(commandList.Get(), Model_ModelSBuffer);
+
+    // For now :
+    // App + IMGUI share the same descriptor heap
+    // App reserve on static slot of heap, while UI build slot of heap dynamically
+    // is fine because UI using different root descriptor table than App descriptor table
+    // They only share descriptor heap
+
+    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    {
+        const auto& mesh = m_model.meshes[i];
+        const auto& resource = m_meshResources[i];
+
+        XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
+
+        // transform bounding box to world space
+        BoundingBox worldBox;
+        mesh.boundingBox.Transform(worldBox, world);
+
+        if (frustum.Contains(worldBox) == DISJOINT)
+        {
+            continue;
+        }
+
+        // Constant
+        ModelConstants constant = {static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex)};
+        commandList->SetGraphicsRoot32BitConstants(Model_ModelConstant, 2, &constant, 0);
+
+        // Set vertex and index buffers
+        commandList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
+        commandList->IASetIndexBuffer(&resource.indexBuffer.IBView());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
     }
 
     return S_OK;

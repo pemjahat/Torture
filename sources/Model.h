@@ -1,12 +1,8 @@
 #pragma once
 
-#include <d3d12.h>
-#include <DirectXMath.h>
-#include <vector>
-#include <string>
-#include <wrl/client.h> 
-
+#include "PCH.h"
 #include "Helper.h"
+#include "GraphicsTypes.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -27,23 +23,20 @@ struct TextureResource
 	int height = 0;
 	int channels = 0;	// for RGBA is 4
 
-	ComPtr<ID3D12Resource> texture;
-	ComPtr<ID3D12Resource> uploadBuffer;	// TODO: No need store this
+	Texture texture;
 };
 
 // TODO: No need to store this, runtime view should be fine
 struct TextureView
 {
 	int resourceIndex = -1;
-	// Resource
-	D3D12_CPU_DESCRIPTOR_HANDLE srvTextureCpuHandle;
-	D3D12_GPU_DESCRIPTOR_HANDLE srvTextureGpuHandle;
+	int viewIndex = -1;
 };
 
 struct MaterialData
 {
 	DirectX::XMFLOAT4 baseColorFactor = DirectX::XMFLOAT4(1.f, 1.f, 1.f, 1.f);
-	float metallicFactor = 1.f;
+	float metallicFactor = 0.f;
 	float roughnessFactor = 1.f;
 	int albedoTextureIndex = -1;
 	int metallicRoughnessTextureIndex = -1;
@@ -67,6 +60,7 @@ struct MeshData
 	std::vector<uint32_t> indices;
 	int materialIndex = -1;
 	DirectX::XMFLOAT4X4 transform;	// Node hierarchy transform
+	DirectX::BoundingBox boundingBox;
 };
 
 struct ModelData
@@ -76,56 +70,69 @@ struct ModelData
 	std::vector<MaterialData> materials;
 	std::vector<TextureView> textures;
 	std::vector<TextureResource> images;
-	//TextureData albedo;
-	//TextureData metallicRoughness;
-	//TextureData normal;
 	bool hasVertexColor = false;
 	bool hasTangent = false;
 };
 
-struct MaterialConstantBuffer
+struct MaterialStructuredBuffer
 {
 	int useVertexColor = 0;
 	int useTangent = 0;
 	float metallicFactor = 0.f;
 	float roughnessFactor = 1.f;
 
-	int hasAlbedoMap = 0;
-	int hasMetallicRoughnessMap = 0;
-	int hasNormalMap = 0;
+	int albedoTextureIndex = 0;
+	int metallicTextureIndex = 0;
+	int normalTextureIndex = 0;
 	float paddedMat;
 
 	DirectX::XMFLOAT4 baseColorFactor;
+};
+
+struct MeshStructuredBuffer
+{
+	DirectX::XMFLOAT3 centerBound;
+	float padBound1;
+	
+	DirectX::XMFLOAT3 extentsBound;
+	float padBound2;
+
 	DirectX::XMFLOAT4X4 meshTransform;
+};
+
+// Constant must be aligned to 256 bytes
+struct ModelConstants
+{
+	UINT meshIndex;		// index for mesh structured buffer
+	UINT materialIndex;	// index for material structured buffer
 };
 
 struct MeshResources
 {
-	Microsoft::WRL::ComPtr<ID3D12Resource> vertexBuffer;
-	Microsoft::WRL::ComPtr<ID3D12Resource> indexBuffer;
-
-	Microsoft::WRL::ComPtr<ID3D12Resource> vertexUploadBuffer;
-	Microsoft::WRL::ComPtr<ID3D12Resource> indexUploadBuffer;
-
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
-	D3D12_INDEX_BUFFER_VIEW indexBufferView;
-
-	D3D12_GPU_DESCRIPTOR_HANDLE constantBufferView;
+	StructuredBuffer vertexBuffer;
+	FormattedBuffer indexBuffer;
 };
 
 class Model
 {
 public:
-	Model();
-	~Model();
+	void Initialize();
+	void Shutdown();
+
+	void LoadShader(const std::filesystem::path& shaderPath);
+	void CreatePSO();
 
 	HRESULT LoadFromFile(const std::string& filePath);
-	HRESULT UploadGpuResources(
-		ID3D12Device* device,
-		DescriptorHeapAllocator& heapAlloc,	// For srv	
-		ID3D12DescriptorHeap* samplerHeap,	// For sampler
-		ID3D12GraphicsCommandList* cmdList);
-	HRESULT RenderGpu(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList);
+	HRESULT UploadGpuResources();
+
+	HRESULT RenderDepthOnly(
+		const ConstantBuffer* sceneCB,
+		const DirectX::BoundingFrustum& frustum);
+
+	HRESULT RenderBasePass(
+		const ConstantBuffer* sceneCB,
+		const ConstantBuffer* lightCB,
+		const DirectX::BoundingFrustum& frustum);
 
 private:
 	// Helper
@@ -137,8 +144,18 @@ private:
 
 	std::vector<MeshResources> m_meshResources;
 
-	ComPtr<ID3D12Resource> m_materialCB;
-	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;	
+	StructuredBuffer m_meshSB;
+	StructuredBuffer m_materialSB;
+	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;
+
+	ComPtr<IDxcBlob> m_vertexShader;
+	ComPtr<IDxcBlob> m_pixelShader;
+	ComPtr<IDxcBlob> m_depthVertexShader;
+
+	ComPtr<ID3D12RootSignature> m_rootSignature;
+	ComPtr<ID3D12RootSignature> m_depthRootSignature;
+	ComPtr<ID3D12PipelineState> m_pipelineState;
+	ComPtr<ID3D12PipelineState> m_depthPipelineState;
 };
 
 
