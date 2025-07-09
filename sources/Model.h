@@ -24,8 +24,6 @@ struct TextureResource
 	int channels = 0;	// for RGBA is 4
 
 	Texture texture;
-	//ComPtr<ID3D12Resource> texture;
-	//ComPtr<ID3D12Resource> uploadBuffer;	// TODO: No need store this
 };
 
 // TODO: No need to store this, runtime view should be fine
@@ -125,12 +123,7 @@ public:
 	void CreatePSO();
 
 	HRESULT LoadFromFile(const std::string& filePath);
-	HRESULT UploadGpuResources(
-		ID3D12Device* device,
-		UINT sbBaseIndex,
-		UINT texBaseIndex,		
-		ID3D12DescriptorHeap* srvcbvHeap,		
-		ID3D12GraphicsCommandList* cmdList);
+	HRESULT UploadGpuResources();
 
 	HRESULT RenderDepthOnly(
 		const ConstantBuffer* sceneCB,
@@ -151,10 +144,6 @@ private:
 
 	std::vector<MeshResources> m_meshResources;
 
-	/*ComPtr<ID3D12Resource> m_meshSB;
-	ComPtr<ID3D12Resource> m_meshUploadSB;
-	ComPtr<ID3D12Resource> m_materialSB;
-	ComPtr<ID3D12Resource> m_materialUploadSB;*/
 	StructuredBuffer m_meshSB;
 	StructuredBuffer m_materialSB;
 	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;

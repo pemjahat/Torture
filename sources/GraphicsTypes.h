@@ -23,6 +23,7 @@ struct DescriptorHeap
 	uint32_t numDescriptor = 0;
 	uint32_t numAllocated = 0;
 	uint32_t heapIncrement = 0;
+	bool shaderVisible = true;
 	std::vector<uint32_t> FreeIndices;
 	D3D12_DESCRIPTOR_HEAP_TYPE heapType = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	D3D12_CPU_DESCRIPTOR_HANDLE cpuStart = {};
@@ -33,9 +34,13 @@ struct DescriptorHeap
 
 	DescriptorAlloc Allocate();
 	void Free(uint32_t& index);
+	void Free(D3D12_CPU_DESCRIPTOR_HANDLE handle);
+	void Free(D3D12_GPU_DESCRIPTOR_HANDLE handle);
 
 	D3D12_CPU_DESCRIPTOR_HANDLE CPUHandleFromIndex(uint32_t descriptorIdx) const;
 	D3D12_GPU_DESCRIPTOR_HANDLE GPUHandleFromIndex(uint32_t descriptorIdx) const;
+	uint32_t IndexFromHandle(D3D12_CPU_DESCRIPTOR_HANDLE handle);
+	uint32_t IndexFromHandle(D3D12_GPU_DESCRIPTOR_HANDLE handle);
 };
 
 struct Buffer
@@ -144,5 +149,38 @@ struct Texture
 	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
 
 	void Initialize(const TextureInit& init);
+	void Shutdown();
+};
+
+struct DepthBufferInit
+{
+	uint32_t width = 0;
+	uint32_t height = 0;
+	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;	
+};
+
+struct DepthBuffer
+{
+	Texture texture;
+	D3D12_CPU_DESCRIPTOR_HANDLE dsv = {};
+	DXGI_FORMAT depthFormat = DXGI_FORMAT_UNKNOWN;
+
+	void Initialize(const DepthBufferInit& init);
+	void Shutdown();
+};
+
+struct RenderTextureInit
+{
+	uint32_t width = 0;
+	uint32_t height = 0;
+	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+};
+
+struct RenderTexture
+{
+	Texture texture;
+	D3D12_CPU_DESCRIPTOR_HANDLE rtv = {};
+
+	void Initialize(const RenderTextureInit& init);
 	void Shutdown();
 };

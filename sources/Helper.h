@@ -21,6 +21,8 @@ enum class ShaderType
 };
 
 // External
+extern DescriptorHeap rtvDescriptorHeap;
+extern DescriptorHeap dsvDescriptorHeap;
 extern DescriptorHeap srvDescriptorHeap;
 
 // Once

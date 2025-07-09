@@ -17,15 +17,20 @@ void DescriptorHeap::Initialize(uint32_t size, D3D12_DESCRIPTOR_HEAP_TYPE type)
 	for (int n = 0; n < numDescriptor; n++)
 		FreeIndices.push_back(n);
 
+	if (type == D3D12_DESCRIPTOR_HEAP_TYPE_RTV || type == D3D12_DESCRIPTOR_HEAP_TYPE_DSV)
+		shaderVisible = false;
+
 	D3D12_DESCRIPTOR_HEAP_DESC desc = {};
 	desc.NumDescriptors = numDescriptor;
 	desc.Type = heapType;
-	desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	desc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 
 	CheckHRESULT(d3dDevice->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap)));
 
 	cpuStart = heap->GetCPUDescriptorHandleForHeapStart();
-	gpuStart = heap->GetGPUDescriptorHandleForHeapStart();
+
+	if (shaderVisible)
+		gpuStart = heap->GetGPUDescriptorHandleForHeapStart();
 	heapIncrement = d3dDevice->GetDescriptorHandleIncrementSize(heapType);
 }
 
@@ -68,6 +73,19 @@ void DescriptorHeap::Free(uint32_t& index)
 	index = uint32_t(-1);
 }
 
+void DescriptorHeap::Free(D3D12_CPU_DESCRIPTOR_HANDLE handle)
+{
+	uint32_t idx = IndexFromHandle(handle);
+	Free(idx);
+}
+
+void DescriptorHeap::Free(D3D12_GPU_DESCRIPTOR_HANDLE handle)
+{
+	assert(shaderVisible);
+	uint32_t idx = IndexFromHandle(handle);
+	Free(idx);
+}
+
 D3D12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::CPUHandleFromIndex(uint32_t descriptorIdx) const
 {
 	assert(descriptorIdx < numDescriptor);
@@ -79,11 +97,22 @@ D3D12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::CPUHandleFromIndex(uint32_t descript
 D3D12_GPU_DESCRIPTOR_HANDLE DescriptorHeap::GPUHandleFromIndex(uint32_t descriptorIdx) const
 {
 	assert(descriptorIdx < numDescriptor);
+	assert(shaderVisible);
 	D3D12_GPU_DESCRIPTOR_HANDLE handle = gpuStart;
 	handle.ptr += descriptorIdx * heapIncrement;
 	return handle;
 }
 
+uint32_t DescriptorHeap::IndexFromHandle(D3D12_CPU_DESCRIPTOR_HANDLE handle)
+{
+	return uint32_t(handle.ptr - cpuStart.ptr) / heapIncrement;
+}
+
+uint32_t DescriptorHeap::IndexFromHandle(D3D12_GPU_DESCRIPTOR_HANDLE handle)
+{
+	assert(shaderVisible);
+	return uint32_t(handle.ptr - gpuStart.ptr) / heapIncrement;
+}
 //
 // Buffer
 //
@@ -377,17 +406,94 @@ void Texture::Shutdown()
 		upload = nullptr;
 	}
 }
+
 //
-//void Texture::SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
-//{
-//	assert(SRV != uint32_t(-1));
-//	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
-//	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
-//}
+// Depth Buffer
 //
-//void Texture::SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
-//{
-//	assert(SRV != uint32_t(-1));
-//	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
-//	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
-//}
+void DepthBuffer::Initialize(const DepthBufferInit& init)
+{
+	// srv format based on init
+	DXGI_FORMAT srvFormat = DXGI_FORMAT_UNKNOWN;
+	if (init.format == DXGI_FORMAT_D32_FLOAT)
+	{
+		srvFormat = DXGI_FORMAT_R32_FLOAT;
+	}
+	
+	D3D12_RESOURCE_DESC textureDesc = {};
+	textureDesc.MipLevels = 1;
+	textureDesc.Format = init.format;
+	textureDesc.Width = init.width;
+	textureDesc.Height = init.height;
+	textureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+	textureDesc.DepthOrArraySize = 1;
+	textureDesc.SampleDesc.Count = 1;
+	textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	
+	D3D12_CLEAR_VALUE clearValue = {};
+	clearValue.Format = init.format;
+	clearValue.DepthStencil.Depth = 1.f;
+	clearValue.DepthStencil.Stencil = 0;
+
+	CheckHRESULT(d3dDevice->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&textureDesc,
+		D3D12_RESOURCE_STATE_DEPTH_WRITE,
+		&clearValue,
+		IID_PPV_ARGS(&texture.resource)));
+
+	DescriptorAlloc dsvAlloc = dsvDescriptorHeap.Allocate();
+	dsv = dsvAlloc.cpuHandle;
+
+	// Depth View
+	D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+	dsvDesc.Format = init.format;
+	dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+	dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
+
+	d3dDevice->CreateDepthStencilView(texture.resource.Get(), &dsvDesc, dsv);
+}
+
+void DepthBuffer::Shutdown()
+{
+	dsvDescriptorHeap.Free(dsv);
+	texture.Shutdown();
+}
+
+//
+// Render Target
+//
+void RenderTexture::Initialize(const RenderTextureInit& init)
+{
+	D3D12_RESOURCE_DESC textureDesc = {};
+	textureDesc.MipLevels = 1;
+	textureDesc.Format = init.format;
+	textureDesc.Width = init.width;
+	textureDesc.Height = init.height;
+	textureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	textureDesc.DepthOrArraySize = 1;
+	textureDesc.SampleDesc.Count = 1;
+	textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+
+	D3D12_CLEAR_VALUE clearValue = {};
+	clearValue.Format = init.format;
+
+	CheckHRESULT(d3dDevice->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&textureDesc,
+		D3D12_RESOURCE_STATES(-1),
+		&clearValue,
+		IID_PPV_ARGS(&texture.resource)));
+
+	DescriptorAlloc rtvAlloc = rtvDescriptorHeap.Allocate();
+	rtv = rtvAlloc.cpuHandle;
+
+	d3dDevice->CreateRenderTargetView(texture.resource.Get(), nullptr, rtv);
+}
+
+void RenderTexture::Shutdown()
+{
+	rtvDescriptorHeap.Free(rtv);
+	texture.Shutdown();
+}

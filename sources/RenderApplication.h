@@ -36,22 +36,7 @@ public:
 
 private:
     static const UINT FrameCount = 2;
-    static const UINT SrvCbvHeapSize = 1000;
     
-    // Total shared descriptor for main pass
-    //static const UINT DescriptorCBCount = 2;
-    static const UINT DescriptorSBCount = 2;
-    static const UINT DescriptorTexCount = 500;
-
-    //static const UINT DescriptorCBVCount = DescriptorCBCount;
-    static const UINT DescriptorSRVCount = DescriptorSBCount + DescriptorTexCount;
-    //static const UINT DescriptorSrvCbvCount = DescriptorSRVCount + DescriptorCBVCount;
-
-    // Offset allocated for model resource
-    //static const UINT DescriptorModelSBBase = DescriptorCBCount;   // reserve 5 from CB
-    static const UINT DescriptorModelSBBase = 0;   // reserve 5 from CB
-    static const UINT DescriptorModelTexBase = DescriptorModelSBBase + DescriptorSBCount;
-
     struct SceneConstantBuffer
     {
         XMFLOAT4X4 World;
@@ -74,36 +59,17 @@ private:
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;
     ComPtr<IDXGISwapChain3> m_swapChain;    
-    ComPtr<ID3D12Resource> m_renderTarget[FrameCount];
-    //ComPtr<ID3D12RootSignature> m_rootSignature;
-    //ComPtr<ID3D12PipelineState> m_pipelineState;
 
-    ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
-    ComPtr<ID3D12DescriptorHeap> m_srvcbvDescHeap;    
-    ComPtr<ID3D12DescriptorHeap> m_dsvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_imguiDescHeap;
 
-    D3D12_CPU_DESCRIPTOR_HANDLE m_dsvCpuHandle;
-    D3D12_CPU_DESCRIPTOR_HANDLE m_cbvCpuDescHandle;
-    D3D12_GPU_DESCRIPTOR_HANDLE m_cbvGpuDescHandle;
-
-    D3D12_CPU_DESCRIPTOR_HANDLE m_lightCpuDescHandle;
-
-    
-    UINT m_rtvDescriptorSize;
-
     // Render app resources
-    ComPtr<ID3D12Resource> m_depth;
-    //ComPtr<ID3D12Resource> m_constantBuffer;
-    //ComPtr<ID3D12Resource> m_lightCB;
+    DepthBuffer m_depthBuffer;
+    RenderTexture m_renderTarget[FrameCount];
+
+    //ComPtr<ID3D12Resource> m_depth;
     ConstantBuffer m_sceneCB;
     ConstantBuffer m_lightCB;
     SceneConstantBuffer m_constantBufferData;    
-    UINT8* m_cbvDataBegin;
-    UINT8* m_lightDataBegin;
-
-    // Depth Passes resource
-    //ComPtr<ID3D12PipelineState> m_depthOnlyPipelineState;
 
     // HiZ Passes resource
     ComPtr<ID3D12Resource> m_hiZBuffer;
