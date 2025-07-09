@@ -503,6 +503,9 @@ void RenderApplication::OnDestroy()
         m_renderTarget[i].Shutdown();
     }
     m_depthBuffer.Shutdown();
+    albedoBuffer.Shutdown();
+    normalBuffer.Shutdown();
+    materialBuffer.Shutdown();
 
     ShutdownHelper();
 
@@ -519,6 +522,39 @@ void RenderApplication::OnKeyDown(SDL_KeyboardEvent& key)
 void RenderApplication::OnKeyUp(SDL_KeyboardEvent& key)
 {
     m_camera.OnKeyUp(key);
+}
+
+void RenderApplication::CreateRenderTargets()
+{
+    // Albedo buffer
+    {
+        RenderTextureInit rti;
+        rti.width = m_width;
+        rti.height = m_height;
+        rti.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+        // states PIXEL SHADER_RESOURCE
+        albedoBuffer.Initialize(rti);
+
+    }
+    // Material buffer
+    {
+        RenderTextureInit rti;
+        rti.width = m_width;
+        rti.height = m_height;
+        rti.format = DXGI_FORMAT_R10G10B10A2_UNORM;
+
+        normalBuffer.Initialize(rti);
+    }
+    // Material buffer
+    {
+        RenderTextureInit rti;
+        rti.width = m_width;
+        rti.height = m_height;
+        rti.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+        materialBuffer.Initialize(rti);
+    }
 }
 
 void RenderApplication::PopulateCommandList()

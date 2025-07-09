@@ -34,6 +34,7 @@ public:
     UINT GetWidth() { return m_width; }
     UINT GetHeight() { return m_height; }
 
+    void CreateRenderTargets();
 private:
     static const UINT FrameCount = 2;
     
@@ -65,6 +66,11 @@ private:
     // Render app resources
     DepthBuffer m_depthBuffer;
     RenderTexture m_renderTarget[FrameCount];
+
+    // GBuffer
+    RenderTexture albedoBuffer;
+    RenderTexture normalBuffer;
+    RenderTexture materialBuffer;
 
     //ComPtr<ID3D12Resource> m_depth;
     ConstantBuffer m_sceneCB;
