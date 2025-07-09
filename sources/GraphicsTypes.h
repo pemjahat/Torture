@@ -145,7 +145,4 @@ struct Texture
 
 	void Initialize(const TextureInit& init);
 	void Shutdown();
-
-	void SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
-	void SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
 };

@@ -12,6 +12,14 @@ enum class SamplerState
     MaxSampler
 };
 
+enum class ShaderType
+{
+    Vertex = 0,
+    Pixel,
+    Compute,
+    MaxShader
+};
+
 // External
 extern DescriptorHeap srvDescriptorHeap;
 
@@ -25,6 +33,13 @@ const D3D12_DESCRIPTOR_RANGE1* SRVDescriptorRanges();
 D3D12_SAMPLER_DESC GetSamplerState(SamplerState samplerState);
 D3D12_STATIC_SAMPLER_DESC GetStaticSamplerState(SamplerState samplerState, uint32_t shaderRegister = 0, uint32_t registerSpace = 0);
 D3D12_STATIC_SAMPLER_DESC ConvertToStaticSampler(const D3D12_SAMPLER_DESC samplerDesc, uint32_t shaderRegister, uint32_t registerSpace);
+
+//
+void SrvSetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter);
+void SrvSetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter);
+
+void CreateRootSignature(Microsoft::WRL::ComPtr<ID3D12RootSignature>& rootSignature, const D3D12_ROOT_SIGNATURE_DESC1& desc);
+void CompileShaderFromFile(const std::wstring& filePath, const std::wstring& includePath, Microsoft::WRL::ComPtr<IDxcBlob>& shaderBlob, ShaderType type);
 
 struct DescriptorHeapAllocator
 {

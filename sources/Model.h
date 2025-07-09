@@ -23,9 +23,9 @@ struct TextureResource
 	int height = 0;
 	int channels = 0;	// for RGBA is 4
 
-	//Texture texture;
-	ComPtr<ID3D12Resource> texture;
-	ComPtr<ID3D12Resource> uploadBuffer;	// TODO: No need store this
+	Texture texture;
+	//ComPtr<ID3D12Resource> texture;
+	//ComPtr<ID3D12Resource> uploadBuffer;	// TODO: No need store this
 };
 
 // TODO: No need to store this, runtime view should be fine
@@ -121,7 +121,7 @@ public:
 	void Initialize();
 	void Shutdown();
 
-	void LoadShader();
+	void LoadShader(const std::filesystem::path& shaderPath);
 	void CreatePSO();
 
 	HRESULT LoadFromFile(const std::string& filePath);
@@ -133,18 +133,12 @@ public:
 		ID3D12GraphicsCommandList* cmdList);
 
 	HRESULT RenderDepthOnly(
-		ID3D12Device* device, 
-		ID3D12GraphicsCommandList* cmdList, 
-		UINT sbBaseIndex,
-		ID3D12DescriptorHeap* srvHeap,
+		const ConstantBuffer* sceneCB,
 		const DirectX::BoundingFrustum& frustum);
 
 	HRESULT RenderBasePass(
-		ID3D12Device* device, 
-		ID3D12GraphicsCommandList* cmdList,
-		UINT sbBaseIndex,
-		UINT texBaseIndex,		
-		ID3D12DescriptorHeap* srvHeap,
+		const ConstantBuffer* sceneCB,
+		const ConstantBuffer* lightCB,
 		const DirectX::BoundingFrustum& frustum);
 
 private:
@@ -157,12 +151,12 @@ private:
 
 	std::vector<MeshResources> m_meshResources;
 
-	ComPtr<ID3D12Resource> m_meshSB;
+	/*ComPtr<ID3D12Resource> m_meshSB;
 	ComPtr<ID3D12Resource> m_meshUploadSB;
 	ComPtr<ID3D12Resource> m_materialSB;
-	ComPtr<ID3D12Resource> m_materialUploadSB;
-	//StructuredBuffer m_meshSB;
-	//StructuredBuffer m_materialSB;
+	ComPtr<ID3D12Resource> m_materialUploadSB;*/
+	StructuredBuffer m_meshSB;
+	StructuredBuffer m_materialSB;
 	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;
 
 	ComPtr<IDxcBlob> m_vertexShader;

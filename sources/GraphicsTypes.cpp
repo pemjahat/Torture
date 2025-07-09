@@ -235,6 +235,20 @@ void StructuredBuffer::Shutdown()
 	srvDescriptorHeap.Free(SRV);
 	internalBuffer.Shutdown();
 }
+//
+//void StructuredBuffer::SetAsGfxRootParameterTable(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter)
+//{
+//	assert(SRV != uint32_t(-1));
+//	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
+//	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
+//}
+//
+//void StructuredBuffer::SetAsComputeRootParameterTable(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter)
+//{
+//	assert(SRV != uint32_t(-1));
+//	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
+//	cmdList->SetComputeRootDescriptorTable(rootParameter, handle);
+//}
 
 void StructuredBuffer::SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
 {
@@ -363,17 +377,17 @@ void Texture::Shutdown()
 		upload = nullptr;
 	}
 }
-
-void Texture::SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
-{
-	assert(SRV != uint32_t(-1));
-	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
-	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
-}
-
-void Texture::SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
-{
-	assert(SRV != uint32_t(-1));
-	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
-	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
-}
+//
+//void Texture::SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
+//{
+//	assert(SRV != uint32_t(-1));
+//	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
+//	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
+//}
+//
+//void Texture::SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
+//{
+//	assert(SRV != uint32_t(-1));
+//	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
+//	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
+//}

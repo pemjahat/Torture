@@ -75,8 +75,8 @@ private:
     D3D12_RECT m_scissorRect;
     ComPtr<IDXGISwapChain3> m_swapChain;    
     ComPtr<ID3D12Resource> m_renderTarget[FrameCount];
-    ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
+    //ComPtr<ID3D12RootSignature> m_rootSignature;
+    //ComPtr<ID3D12PipelineState> m_pipelineState;
 
     ComPtr<ID3D12DescriptorHeap> m_rtvDescHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvcbvDescHeap;    
@@ -103,7 +103,7 @@ private:
     UINT8* m_lightDataBegin;
 
     // Depth Passes resource
-    ComPtr<ID3D12PipelineState> m_depthOnlyPipelineState;
+    //ComPtr<ID3D12PipelineState> m_depthOnlyPipelineState;
 
     // HiZ Passes resource
     ComPtr<ID3D12Resource> m_hiZBuffer;
