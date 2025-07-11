@@ -15,7 +15,7 @@ static D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange = {};
 void InitializeHelper()
 {
 	// Descriptor heap
-	rtvDescriptorHeap.Initialize(2, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	rtvDescriptorHeap.Initialize(5, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	dsvDescriptorHeap.Initialize(1, D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 	srvDescriptorHeap.Initialize(1024, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 

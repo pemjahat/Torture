@@ -193,20 +193,20 @@ void RenderApplication::LoadPipeline()
     for (UINT i = 0; i < FrameCount; ++i)
     {
         DescriptorAlloc rtvAlloc = rtvDescriptorHeap.Allocate();
-        m_renderTarget[i].rtv = rtvAlloc.cpuHandle;
+        backBuffer[i].rtv = rtvAlloc.cpuHandle;
 
-        m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTarget[i].texture.resource));
+        m_swapChain->GetBuffer(i, IID_PPV_ARGS(&backBuffer[i].texture.resource));
 
         D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
         rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
         rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         rtvDesc.Texture2D.MipSlice = 0;
         rtvDesc.Texture2D.PlaneSlice = 0;
-        d3dDevice->CreateRenderTargetView(m_renderTarget[i].texture.resource.Get(), &rtvDesc, m_renderTarget[i].rtv);
+        d3dDevice->CreateRenderTargetView(backBuffer[i].texture.resource.Get(), &rtvDesc, backBuffer[i].rtv);
 
-        m_renderTarget[i].texture.width = m_width;
-        m_renderTarget[i].texture.height = m_height;
-        m_renderTarget[i].texture.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        backBuffer[i].texture.width = m_width;
+        backBuffer[i].texture.height = m_height;
+        backBuffer[i].texture.format = DXGI_FORMAT_R8G8B8A8_UNORM;
     }
     // Command allocator
     CheckHRESULT(d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator)));
@@ -311,14 +311,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // prematurely destroyed.
     ComPtr<ID3D12Resource> textureUploadHeap;
 
-    // Create depth
-    {
-        DepthBufferInit dbi;
-        dbi.width = m_width;
-        dbi.height = m_height;
-        dbi.format = DXGI_FORMAT_D32_FLOAT;
-        m_depthBuffer.Initialize(dbi);
-    }
+    
 
     // Create hiz pass
     {
@@ -500,9 +493,9 @@ void RenderApplication::OnDestroy()
     m_model.Shutdown();
     for (uint32_t i = 0; i < FrameCount; ++i)
     {
-        m_renderTarget[i].Shutdown();
+        backBuffer[i].Shutdown();
     }
-    m_depthBuffer.Shutdown();
+    depthBuffer.Shutdown();
     albedoBuffer.Shutdown();
     normalBuffer.Shutdown();
     materialBuffer.Shutdown();
@@ -555,6 +548,110 @@ void RenderApplication::CreateRenderTargets()
 
         materialBuffer.Initialize(rti);
     }
+    // Depth Buffer
+    {
+        DepthBufferInit dbi;
+        dbi.width = m_width;
+        dbi.height = m_height;
+        dbi.format = DXGI_FORMAT_D32_FLOAT;
+        depthBuffer.Initialize(dbi);
+    }
+}
+
+void RenderApplication::RenderDeferred()
+{
+    // Transition gbuffer targets to writeable state
+    {
+        D3D12_RESOURCE_BARRIER barriers[4] = {};
+
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+            depthBuffer.Resource(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_DEPTH_READ,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE);
+
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+            albedoBuffer.Resource(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        barriers[2] = CD3DX12_RESOURCE_BARRIER::Transition(
+            normalBuffer.Resource(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        barriers[3] = CD3DX12_RESOURCE_BARRIER::Transition(
+            materialBuffer.Resource(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        commandList->ResourceBarrier(_countof(barriers), barriers);
+    }
+
+    // Clear render targets
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[] = { albedoBuffer.rtv, normalBuffer.rtv, materialBuffer.rtv };
+
+    commandList->OMSetRenderTargets(_countof(rtvHandles), rtvHandles, false, &depthBuffer.dsv);
+
+    const float clearColor[] = { 0.f, 0.f, 0.f, 0.f };
+    for (uint32_t i = 0; i < _countof(rtvHandles); ++i)
+    {
+        commandList->ClearRenderTargetView(rtvHandles[i], clearColor, 0, nullptr);
+    }
+    commandList->ClearDepthStencilView(depthBuffer.dsv, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
+
+    commandList->RSSetViewports(1, &m_viewport);
+    commandList->RSSetScissorRects(1, &m_scissorRect);
+
+    m_model.RenderGBuffer();
+
+    // Transition gbuffer targets to read state
+    {
+        D3D12_RESOURCE_BARRIER barriers[4] = {};
+
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+            depthBuffer.Resource(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_DEPTH_READ);
+
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+            albedoBuffer.Resource(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        barriers[2] = CD3DX12_RESOURCE_BARRIER::Transition(
+            normalBuffer.Resource(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        barriers[3] = CD3DX12_RESOURCE_BARRIER::Transition(
+            materialBuffer.Resource(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        commandList->ResourceBarrier(_countof(barriers), barriers);
+    }
+
+    // Fullscreen deferred pass
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        backBuffer[m_frameIndex].texture.resource.Get(),
+        D3D12_RESOURCE_STATE_PRESENT,
+        D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    commandList->ResourceBarrier(1, &barrier);
+
+    // todo: deferred root signature + pipeline
+
+    // todo: fullscreen triangle vs
+    
+    // bind : descriptor table
+
+    // transition back
+    barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        backBuffer[m_frameIndex].texture.resource.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_PRESENT);
+    commandList->ResourceBarrier(1, &barrier);
 }
 
 void RenderApplication::PopulateCommandList()
@@ -620,8 +717,8 @@ void RenderApplication::PopulateCommandList()
 
     // Depth only pass
     {
-        commandList->OMSetRenderTargets(0, nullptr, FALSE, &m_depthBuffer.dsv);
-        commandList->ClearDepthStencilView(m_depthBuffer.dsv, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
+        commandList->OMSetRenderTargets(0, nullptr, FALSE, &depthBuffer.dsv);
+        commandList->ClearDepthStencilView(depthBuffer.dsv, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
 
         m_model.RenderDepthOnly(
             &m_sceneCB,            
@@ -702,15 +799,15 @@ void RenderApplication::PopulateCommandList()
     {
         // Transition back buffer to RENDER_TARGET
         D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_renderTarget[m_frameIndex].texture.resource.Get(),
+            backBuffer[m_frameIndex].texture.resource.Get(),
             D3D12_RESOURCE_STATE_PRESENT,
             D3D12_RESOURCE_STATE_RENDER_TARGET);
         commandList->ResourceBarrier(1, &barrier);
 
-        commandList->OMSetRenderTargets(1, &m_renderTarget[m_frameIndex].rtv, FALSE, &m_depthBuffer.dsv);
+        commandList->OMSetRenderTargets(1, &backBuffer[m_frameIndex].rtv, FALSE, &depthBuffer.dsv);
 
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
-        commandList->ClearRenderTargetView(m_renderTarget[m_frameIndex].rtv, clear_color_with_alpha, 0, nullptr);
+        commandList->ClearRenderTargetView(backBuffer[m_frameIndex].rtv, clear_color_with_alpha, 0, nullptr);
 
         m_model.RenderBasePass(
             &m_sceneCB,
@@ -739,7 +836,7 @@ void RenderApplication::PopulateCommandList()
     );
     commandList->ResourceBarrier(2, barriers);*/
     D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-        m_renderTarget[m_frameIndex].texture.resource.Get(),
+        backBuffer[m_frameIndex].texture.resource.Get(),
         D3D12_RESOURCE_STATE_RENDER_TARGET,
         D3D12_RESOURCE_STATE_PRESENT
     );

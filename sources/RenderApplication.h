@@ -35,6 +35,7 @@ public:
     UINT GetHeight() { return m_height; }
 
     void CreateRenderTargets();
+    void RenderDeferred();
 private:
     static const UINT FrameCount = 2;
     
@@ -64,8 +65,8 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_imguiDescHeap;
 
     // Render app resources
-    DepthBuffer m_depthBuffer;
-    RenderTexture m_renderTarget[FrameCount];
+    DepthBuffer depthBuffer;
+    RenderTexture backBuffer[FrameCount];
 
     // GBuffer
     RenderTexture albedoBuffer;

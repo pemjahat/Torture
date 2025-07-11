@@ -134,6 +134,9 @@ public:
 		const ConstantBuffer* lightCB,
 		const DirectX::BoundingFrustum& frustum);
 
+	void RenderDepthPrepass();
+	void RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::BoundingFrustum& frustum);
+
 private:
 	// Helper
 	D3D12_FILTER GetD3D12Filter(int magFilter, int minFilter);
@@ -151,11 +154,15 @@ private:
 	ComPtr<IDxcBlob> m_vertexShader;
 	ComPtr<IDxcBlob> m_pixelShader;
 	ComPtr<IDxcBlob> m_depthVertexShader;
+	ComPtr<IDxcBlob> gbufferVS;
+	ComPtr<IDxcBlob> gbufferPS;
 
 	ComPtr<ID3D12RootSignature> m_rootSignature;
 	ComPtr<ID3D12RootSignature> m_depthRootSignature;
+	ComPtr<ID3D12RootSignature> gbufferRootSignature;
 	ComPtr<ID3D12PipelineState> m_pipelineState;
 	ComPtr<ID3D12PipelineState> m_depthPipelineState;
+	ComPtr<ID3D12PipelineState> gbufferPipelineState;
 };
 
 
