@@ -167,6 +167,8 @@ struct DepthBuffer
 
 	void Initialize(const DepthBufferInit& init);
 	void Shutdown();
+
+	ID3D12Resource* Resource() { return texture.resource.Get(); }
 };
 
 struct RenderTextureInit
@@ -183,4 +185,6 @@ struct RenderTexture
 
 	void Initialize(const RenderTextureInit& init);
 	void Shutdown();
+
+	ID3D12Resource* Resource() { return texture.resource.Get(); }
 };

@@ -2,8 +2,12 @@
 #include "Utility.h"
 #include "DX12.h"
 
+static const uint32_t NumRasterizerState = uint32_t(RasterizerState::MaxRasterizer);
+static const uint32_t NumDepthState = uint32_t(DepthStencilState::MaxDepth);
 static const uint32_t NumSamplerState = uint32_t(SamplerState::MaxSampler);
 
+static D3D12_RASTERIZER_DESC RasterizerStateDesc[NumRasterizerState] = {};
+static D3D12_DEPTH_STENCIL_DESC DepthStateDesc[NumDepthState] = {};
 static D3D12_SAMPLER_DESC SamplerStateDesc[NumSamplerState] = {};
 
 DescriptorHeap rtvDescriptorHeap;
@@ -15,7 +19,7 @@ static D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange = {};
 void InitializeHelper()
 {
 	// Descriptor heap
-	rtvDescriptorHeap.Initialize(2, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	rtvDescriptorHeap.Initialize(5, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	dsvDescriptorHeap.Initialize(1, D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 	srvDescriptorHeap.Initialize(1024, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
@@ -26,6 +30,44 @@ void InitializeHelper()
 	srvDescriptorRange.RegisterSpace = 1;
 	srvDescriptorRange.OffsetInDescriptorsFromTableStart = 0;
 	srvDescriptorRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
+
+	// Rasterizer state
+	{
+		D3D12_RASTERIZER_DESC& rasterDesc = RasterizerStateDesc[uint32_t(RasterizerState::NoCull)];
+		rasterDesc.CullMode = D3D12_CULL_MODE_NONE;
+		rasterDesc.DepthClipEnable = true;
+		rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
+		rasterDesc.MultisampleEnable = false;
+		rasterDesc.FrontCounterClockwise = true; // Matches glTF CCW convention
+	}
+	{
+		D3D12_RASTERIZER_DESC& rasterDesc = RasterizerStateDesc[uint32_t(RasterizerState::BackfaceCull)];
+		rasterDesc.CullMode = D3D12_CULL_MODE_BACK;
+		rasterDesc.DepthClipEnable = true;
+		rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
+		rasterDesc.MultisampleEnable = false;
+		rasterDesc.FrontCounterClockwise = true; // Matches glTF CCW convention
+	}
+
+	// Depth Stencil state
+	{
+		D3D12_DEPTH_STENCIL_DESC& depthDesc = DepthStateDesc[uint32_t(DepthStencilState::Disabled)];
+		depthDesc.DepthEnable = false;
+		depthDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+		depthDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	}
+	{
+		D3D12_DEPTH_STENCIL_DESC& depthDesc = DepthStateDesc[uint32_t(DepthStencilState::Enabled)];
+		depthDesc.DepthEnable = true;
+		depthDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+		depthDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	}
+	{
+		D3D12_DEPTH_STENCIL_DESC& depthDesc = DepthStateDesc[uint32_t(DepthStencilState::WriteEnabled)];
+		depthDesc.DepthEnable = true;
+		depthDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+		depthDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	}
 
 	// Sampler state
 	{
@@ -87,6 +129,16 @@ void ShutdownHelper()
 const D3D12_DESCRIPTOR_RANGE1* SRVDescriptorRanges()
 {
 	return &srvDescriptorRange;
+}
+
+D3D12_RASTERIZER_DESC GetRasterizerState(RasterizerState rasterState)
+{
+	return RasterizerStateDesc[uint32_t(rasterState)];
+}
+
+D3D12_DEPTH_STENCIL_DESC GetDepthStencilState(DepthStencilState depthState)
+{
+	return DepthStateDesc[uint32_t(depthState)];
 }
 
 D3D12_SAMPLER_DESC GetSamplerState(SamplerState samplerState)

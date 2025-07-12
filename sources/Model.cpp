@@ -395,6 +395,7 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
     // Load shaders
     std::filesystem::path mainShader = shaderPath / "basic_color.hlsl";
     std::filesystem::path depthShader = shaderPath / "basic.hlsl";
+    std::filesystem::path gbufferShader = shaderPath / "gbuffer.hlsl";
 
     CompileShaderFromFile(
         std::filesystem::absolute(mainShader).wstring(),
@@ -413,6 +414,17 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         std::filesystem::absolute(shaderPath).wstring(),
         m_depthVertexShader,
         ShaderType::Vertex);
+
+    CompileShaderFromFile(
+        std::filesystem::absolute(gbufferShader).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        gbufferVS,
+        ShaderType::Vertex);
+    CompileShaderFromFile(
+        std::filesystem::absolute(gbufferShader).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        gbufferPS,
+        ShaderType::Pixel);
 
     // Root signature (main pass)
     {
@@ -519,22 +531,65 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
 
         CreateRootSignature(m_depthRootSignature, rootSignatureDesc);
     }
+
+    // GBuffer root signature
+    {
+        D3D12_ROOT_PARAMETER1 rootParameters[4] = {};
+
+        // Global srv used to bind bindless texture
+        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        rootParameters[0].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
+        rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
+
+        // Scene Constant
+        rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        rootParameters[1].Descriptor.RegisterSpace = 0;
+        rootParameters[1].Descriptor.ShaderRegister = 0;
+        rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+        
+        // Model Constant
+        rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[2].Constants.Num32BitValues = 2;
+        rootParameters[2].Constants.RegisterSpace = 0;
+        rootParameters[2].Constants.ShaderRegister = 1;
+
+        // Structured buffer
+        D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange[1] = {};
+
+        // Descriptor range
+        srvDescriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srvDescriptorRange[0].NumDescriptors = 2;
+        srvDescriptorRange[0].BaseShaderRegister = 0;
+        srvDescriptorRange[0].RegisterSpace = 0;
+        srvDescriptorRange[0].OffsetInDescriptorsFromTableStart = 0;
+        srvDescriptorRange[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
+
+        rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[3].DescriptorTable.pDescriptorRanges = srvDescriptorRange;
+        rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
+
+        // Static sampler
+        D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
+        staticSampler[0] = GetStaticSamplerState(SamplerState::Linear, 0, 0);
+
+        // Root pipeline
+        D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
+        rootSignatureDesc.NumParameters = _countof(rootParameters);
+        rootSignatureDesc.pParameters = rootParameters;
+        rootSignatureDesc.NumStaticSamplers = _countof(staticSampler);
+        rootSignatureDesc.pStaticSamplers = staticSampler;
+        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        CreateRootSignature(gbufferRootSignature, rootSignatureDesc);
+    }
 }
 
 void Model::CreatePSO()
 {
-    D3D12_RASTERIZER_DESC rasterizerDesc = {};
-    rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
-    rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
-    rasterizerDesc.DepthClipEnable = TRUE;
-    rasterizerDesc.MultisampleEnable = FALSE;
-    rasterizerDesc.FrontCounterClockwise = TRUE; // Matches glTF CCW convention
-
-    D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-    depthStencilDesc.DepthEnable = true;
-    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-
     // Main pass PSO
     {
         D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
@@ -550,9 +605,9 @@ void Model::CreatePSO()
         psoDesc.pRootSignature = m_rootSignature.Get();
         psoDesc.VS = { m_vertexShader->GetBufferPointer(), m_vertexShader->GetBufferSize() };
         psoDesc.PS = { m_pixelShader->GetBufferPointer(), m_pixelShader->GetBufferSize() };
-        psoDesc.RasterizerState = rasterizerDesc; // CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT
+        psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
         psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
-        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.DepthStencilState = GetDepthStencilState(DepthStencilState::WriteEnabled);
         psoDesc.SampleMask = UINT_MAX;
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         psoDesc.NumRenderTargets = 1;
@@ -573,9 +628,9 @@ void Model::CreatePSO()
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = m_depthRootSignature.Get();
         psoDesc.VS = { m_depthVertexShader->GetBufferPointer(), m_depthVertexShader->GetBufferSize() };
-        psoDesc.RasterizerState = rasterizerDesc; // CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT
+        psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
         psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
-        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.DepthStencilState = GetDepthStencilState(DepthStencilState::WriteEnabled);
         psoDesc.SampleMask = UINT_MAX;
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         psoDesc.NumRenderTargets = 0;
@@ -583,6 +638,36 @@ void Model::CreatePSO()
         psoDesc.SampleDesc.Count = 1;
         psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
         CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_depthPipelineState)));
+    }
+
+    // GBuffer pso
+    {
+        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+        {
+            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+        };
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = gbufferRootSignature.Get();
+        psoDesc.VS = { gbufferVS->GetBufferPointer(), gbufferVS->GetBufferSize() };
+        psoDesc.PS = { gbufferPS->GetBufferPointer(), gbufferPS->GetBufferSize() };
+        psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
+        psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
+        psoDesc.DepthStencilState = GetDepthStencilState(DepthStencilState::WriteEnabled);
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        psoDesc.NumRenderTargets = 3;
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.RTVFormats[1] = DXGI_FORMAT_R10G10B10A2_UNORM;
+        psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+        psoDesc.SampleDesc.Count = 1;
+        psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferPipelineState)));
     }
 }
 
@@ -842,4 +927,54 @@ HRESULT Model::RenderBasePass(
     }
 
     return S_OK;
+}
+
+void Model::RenderDepthPrepass()
+{
+
+}
+
+void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::BoundingFrustum& frustum)
+{
+    if (m_model.meshes.empty())
+    {
+        return;
+    }
+
+    commandList->SetPipelineState(gbufferPipelineState.Get());
+    commandList->SetGraphicsRootSignature(gbufferRootSignature.Get());
+
+    // Bind srv descriptor heaps contain texture srv
+    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
+    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+    SrvSetAsGfxRootParameter(commandList.Get(), 0);
+    sceneCB->SetAsGfxRootParameter(commandList.Get(), 1);
+    m_meshSB.SetAsGfxRootParameter(commandList.Get(), 3);
+
+    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    {
+        const auto& mesh = m_model.meshes[i];
+        const auto& resource = m_meshResources[i];
+
+        XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
+
+        // transform bounding box to world space
+        BoundingBox worldBox;
+        mesh.boundingBox.Transform(worldBox, world);
+
+        if (frustum.Contains(worldBox) == DISJOINT)
+        {
+            continue;
+        }
+
+        // Constant
+        ModelConstants constant = { static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex) };
+        commandList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
+
+        // Set vertex and index buffers
+        commandList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
+        commandList->IASetIndexBuffer(&resource.indexBuffer.IBView());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+    }
 }

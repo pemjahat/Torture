@@ -482,9 +482,14 @@ void RenderTexture::Initialize(const RenderTextureInit& init)
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 		D3D12_HEAP_FLAG_NONE,
 		&textureDesc,
-		D3D12_RESOURCE_STATES(-1),
+		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
 		&clearValue,
 		IID_PPV_ARGS(&texture.resource)));
+
+	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
+	texture.SRV = srvAlloc.descriptorIndex;
+
+	d3dDevice->CreateShaderResourceView(texture.resource.Get(), nullptr, srvAlloc.cpuHandle);
 
 	DescriptorAlloc rtvAlloc = rtvDescriptorHeap.Allocate();
 	rtv = rtvAlloc.cpuHandle;
