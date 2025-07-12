@@ -35,7 +35,8 @@ public:
     UINT GetHeight() { return m_height; }
 
     void CreateRenderTargets();
-    void RenderDeferred(const ConstantBuffer* lightCB, const DirectX::BoundingFrustum& frustum);
+    void RenderGBuffer(const DirectX::BoundingFrustum& frustum);
+    void RenderDeferred(const ConstantBuffer* lightCB);
 private:
     static const UINT FrameCount = 2;
     

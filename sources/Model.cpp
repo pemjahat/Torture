@@ -590,18 +590,6 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
 
 void Model::CreatePSO()
 {
-    D3D12_RASTERIZER_DESC rasterizerDesc = {};
-    rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
-    rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
-    rasterizerDesc.DepthClipEnable = TRUE;
-    rasterizerDesc.MultisampleEnable = FALSE;
-    rasterizerDesc.FrontCounterClockwise = TRUE; // Matches glTF CCW convention
-
-    D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-    depthStencilDesc.DepthEnable = true;
-    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-
     // Main pass PSO
     {
         D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
@@ -617,9 +605,9 @@ void Model::CreatePSO()
         psoDesc.pRootSignature = m_rootSignature.Get();
         psoDesc.VS = { m_vertexShader->GetBufferPointer(), m_vertexShader->GetBufferSize() };
         psoDesc.PS = { m_pixelShader->GetBufferPointer(), m_pixelShader->GetBufferSize() };
-        psoDesc.RasterizerState = rasterizerDesc; // CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT
+        psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
         psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
-        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.DepthStencilState = GetDepthStencilState(DepthStencilState::WriteEnabled);
         psoDesc.SampleMask = UINT_MAX;
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         psoDesc.NumRenderTargets = 1;
@@ -640,9 +628,9 @@ void Model::CreatePSO()
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = m_depthRootSignature.Get();
         psoDesc.VS = { m_depthVertexShader->GetBufferPointer(), m_depthVertexShader->GetBufferSize() };
-        psoDesc.RasterizerState = rasterizerDesc; // CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT
+        psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
         psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
-        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.DepthStencilState = GetDepthStencilState(DepthStencilState::WriteEnabled);
         psoDesc.SampleMask = UINT_MAX;
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         psoDesc.NumRenderTargets = 0;
@@ -667,9 +655,9 @@ void Model::CreatePSO()
         psoDesc.pRootSignature = gbufferRootSignature.Get();
         psoDesc.VS = { gbufferVS->GetBufferPointer(), gbufferVS->GetBufferSize() };
         psoDesc.PS = { gbufferPS->GetBufferPointer(), gbufferPS->GetBufferSize() };
-        psoDesc.RasterizerState = rasterizerDesc; // CD3DX12_RASTERIZER_DESC{ D3D12_DEFAULT
+        psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
         psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
-        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.DepthStencilState = GetDepthStencilState(DepthStencilState::WriteEnabled);
         psoDesc.SampleMask = UINT_MAX;
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         psoDesc.NumRenderTargets = 3;
