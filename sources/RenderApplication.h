@@ -35,7 +35,7 @@ public:
     UINT GetHeight() { return m_height; }
 
     void CreateRenderTargets();
-    void RenderDeferred();
+    void RenderDeferred(const ConstantBuffer* lightCB, const DirectX::BoundingFrustum& frustum);
 private:
     static const UINT FrameCount = 2;
     
@@ -77,6 +77,12 @@ private:
     ConstantBuffer m_sceneCB;
     ConstantBuffer m_lightCB;
     SceneConstantBuffer m_constantBufferData;    
+
+    // Deferred resource
+    ComPtr<IDxcBlob> fullscreenVS;
+    ComPtr<IDxcBlob> deferredPS;
+    ComPtr<ID3D12RootSignature> deferredRootSignature;
+    ComPtr<ID3D12PipelineState> deferredPSO;
 
     // HiZ Passes resource
     ComPtr<ID3D12Resource> m_hiZBuffer;

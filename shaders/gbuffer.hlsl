@@ -36,7 +36,7 @@ StructuredBuffer<MaterialData> materialData : register(t1);
 
 SamplerState g_sampler : register(s0);
 
-VSOutput VSMain(VSInput input) : SV_Position
+VSOutput VSMain(VSInput input)
 {
     VSOutput output;
     

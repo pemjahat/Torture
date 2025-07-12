@@ -234,22 +234,105 @@ void RenderApplication::LoadAsset(SDL_Window* window)
 //#else
 //    UINT compileFlags = 0;
 //#endif
-
-    D3D12_RASTERIZER_DESC rasterizerDesc = {};
-    rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
-    rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
-    rasterizerDesc.FrontCounterClockwise = TRUE; // Matches glTF CCW convention
-    rasterizerDesc.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
-    rasterizerDesc.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
-    rasterizerDesc.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
-    rasterizerDesc.DepthClipEnable = TRUE;
-    rasterizerDesc.MultisampleEnable = FALSE;
-    rasterizerDesc.AntialiasedLineEnable = FALSE;
-    rasterizerDesc.ForcedSampleCount = 0;
-    rasterizerDesc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
    
+    // Deferred root
+    {
+        std::filesystem::path fullscreenShader = shaderPath / "fullscreenVS.hlsl";
+        CompileShaderFromFile(
+            std::filesystem::absolute(fullscreenShader).wstring(),
+            std::filesystem::absolute(shaderPath).wstring(),
+            fullscreenVS,
+            ShaderType::Vertex);
+
+        std::filesystem::path deferredShader = shaderPath / "deferred.hlsl";
+        CompileShaderFromFile(
+            std::filesystem::absolute(deferredShader).wstring(),
+            std::filesystem::absolute(shaderPath).wstring(),
+            deferredPS,
+            ShaderType::Pixel);
+
+        D3D12_ROOT_PARAMETER1 rootParameters[3] = {};
+
+        // GBuffer RTarget
+        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        rootParameters[0].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
+        rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
+
+        // Light ConstantBuffer
+        rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        rootParameters[1].Descriptor.RegisterSpace = 0;
+        rootParameters[1].Descriptor.ShaderRegister = 0;
+        rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+        // GBuffer Constant
+        rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[2].Constants.Num32BitValues = 3;
+        rootParameters[2].Constants.RegisterSpace = 0;
+        rootParameters[2].Constants.ShaderRegister = 1;
+
+        // Static sampler
+        D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
+        staticSampler[0] = GetStaticSamplerState(SamplerState::Linear, 0, 0);
+
+        // Root pipeline
+        D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
+        rootSignatureDesc.NumParameters = _countof(rootParameters);
+        rootSignatureDesc.pParameters = rootParameters;
+        rootSignatureDesc.NumStaticSamplers = _countof(staticSampler);
+        rootSignatureDesc.pStaticSamplers = staticSampler;
+        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        CreateRootSignature(deferredRootSignature, rootSignatureDesc);
+    }
+
+    // Deferred PSO
+    {
+        // No Culling
+        D3D12_RASTERIZER_DESC rasterizerDesc = {};
+        rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+        rasterizerDesc.CullMode = D3D12_CULL_MODE_NONE;
+        rasterizerDesc.DepthClipEnable = TRUE;
+        rasterizerDesc.MultisampleEnable = FALSE;
+
+        // depth disable
+        D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
+        depthStencilDesc.DepthEnable = false;
+        depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+        depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = deferredRootSignature.Get();
+        psoDesc.VS = { fullscreenVS->GetBufferPointer(), fullscreenVS->GetBufferSize() };
+        psoDesc.PS = { deferredPS->GetBufferPointer(), deferredPS->GetBufferSize() };
+        psoDesc.RasterizerState = rasterizerDesc;
+        psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
+        psoDesc.DepthStencilState = depthStencilDesc;
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        psoDesc.NumRenderTargets = 1;
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.SampleDesc.Count = 1;
+
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&deferredPSO)));
+    }
+
     // Root signature & Pipeline state (for HiZ)
     {
+        //D3D12_RASTERIZER_DESC rasterizerDesc = {};
+        //rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+        //rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
+        //rasterizerDesc.FrontCounterClockwise = TRUE; // Matches glTF CCW convention
+        //rasterizerDesc.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+        //rasterizerDesc.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+        //rasterizerDesc.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+        //rasterizerDesc.DepthClipEnable = TRUE;
+        //rasterizerDesc.MultisampleEnable = FALSE;
+        //rasterizerDesc.AntialiasedLineEnable = FALSE;
+        //rasterizerDesc.ForcedSampleCount = 0;
+        //rasterizerDesc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
         //CD3DX12_DESCRIPTOR_RANGE1 ranges[2];
         //ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);  // Input depth (t0)
         //ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE);  // Output depth (u0)
@@ -305,13 +388,13 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     // Create command list
     CheckHRESULT(d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
 
+    CreateRenderTargets();
+
     // Note: ComPtr's are CPU objects but this resource needs to stay in scope until
     // the command list that references it has finished executing on the GPU.
     // We will flush the GPU at the end of this method to ensure the resource is not
     // prematurely destroyed.
     ComPtr<ID3D12Resource> textureUploadHeap;
-
-    
 
     // Create hiz pass
     {
@@ -558,28 +641,28 @@ void RenderApplication::CreateRenderTargets()
     }
 }
 
-void RenderApplication::RenderDeferred()
+void RenderApplication::RenderDeferred(const ConstantBuffer* lightCB, const DirectX::BoundingFrustum& frustum)
 {
     // Transition gbuffer targets to writeable state
     {
-        D3D12_RESOURCE_BARRIER barriers[4] = {};
+        D3D12_RESOURCE_BARRIER barriers[3] = {};
 
-        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+        /*barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
             depthBuffer.Resource(),
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_DEPTH_READ,
-            D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            D3D12_RESOURCE_STATE_DEPTH_WRITE);*/
 
-        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
             albedoBuffer.Resource(),
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-        barriers[2] = CD3DX12_RESOURCE_BARRIER::Transition(
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
             normalBuffer.Resource(),
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-        barriers[3] = CD3DX12_RESOURCE_BARRIER::Transition(
+        barriers[2] = CD3DX12_RESOURCE_BARRIER::Transition(
             materialBuffer.Resource(),
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -602,28 +685,28 @@ void RenderApplication::RenderDeferred()
     commandList->RSSetViewports(1, &m_viewport);
     commandList->RSSetScissorRects(1, &m_scissorRect);
 
-    m_model.RenderGBuffer();
+    m_model.RenderGBuffer(&m_sceneCB, frustum);
 
     // Transition gbuffer targets to read state
     {
-        D3D12_RESOURCE_BARRIER barriers[4] = {};
+        D3D12_RESOURCE_BARRIER barriers[3] = {};
 
-        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+        /*barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
             depthBuffer.Resource(),
             D3D12_RESOURCE_STATE_DEPTH_WRITE,
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_DEPTH_READ);
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_DEPTH_READ);*/
 
-        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
             albedoBuffer.Resource(),
             D3D12_RESOURCE_STATE_RENDER_TARGET,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-        barriers[2] = CD3DX12_RESOURCE_BARRIER::Transition(
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
             normalBuffer.Resource(),
             D3D12_RESOURCE_STATE_RENDER_TARGET,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-        barriers[3] = CD3DX12_RESOURCE_BARRIER::Transition(
+        barriers[2] = CD3DX12_RESOURCE_BARRIER::Transition(
             materialBuffer.Resource(),
             D3D12_RESOURCE_STATE_RENDER_TARGET,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -640,18 +723,33 @@ void RenderApplication::RenderDeferred()
 
     commandList->ResourceBarrier(1, &barrier);
 
-    // todo: deferred root signature + pipeline
+    // deferred root signature + pipeline
+    commandList->SetPipelineState(deferredPSO.Get());
+    commandList->SetGraphicsRootSignature(deferredRootSignature.Get());
 
-    // todo: fullscreen triangle vs
-    
-    // bind : descriptor table
+    // Bind srv descriptor heaps contain texture srv
+    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
+    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+    SrvSetAsGfxRootParameter(commandList.Get(), 0);
+    lightCB->SetAsGfxRootParameter(commandList.Get(), 1);
 
-    // transition back
-    barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-        backBuffer[m_frameIndex].texture.resource.Get(),
-        D3D12_RESOURCE_STATE_RENDER_TARGET,
-        D3D12_RESOURCE_STATE_PRESENT);
-    commandList->ResourceBarrier(1, &barrier);
+    // Constant
+    uint32_t constant[3] = { albedoBuffer.texture.SRV, normalBuffer.texture.SRV, materialBuffer.texture.SRV };
+    commandList->SetGraphicsRoot32BitConstants(2, 3, &constant, 0);
+
+    commandList->OMSetRenderTargets(1, &backBuffer[m_frameIndex].rtv, false, nullptr);
+
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    commandList->IASetIndexBuffer(nullptr);
+    commandList->IASetVertexBuffers(0, 0, nullptr);
+    commandList->DrawInstanced(3, 1, 0, 0);
+
+    //// transition back
+    //barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+    //    backBuffer[m_frameIndex].texture.resource.Get(),
+    //    D3D12_RESOURCE_STATE_RENDER_TARGET,
+    //    D3D12_RESOURCE_STATE_PRESENT);
+    //commandList->ResourceBarrier(1, &barrier);
 }
 
 void RenderApplication::PopulateCommandList()
@@ -798,7 +896,7 @@ void RenderApplication::PopulateCommandList()
     // Main pass
     {
         // Transition back buffer to RENDER_TARGET
-        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        /*D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
             backBuffer[m_frameIndex].texture.resource.Get(),
             D3D12_RESOURCE_STATE_PRESENT,
             D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -812,7 +910,20 @@ void RenderApplication::PopulateCommandList()
         m_model.RenderBasePass(
             &m_sceneCB,
             &m_lightCB,
-            frustum);
+            frustum);*/
+
+        RenderDeferred(&m_lightCB, frustum);
+
+        /*D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+            backBuffer[m_frameIndex].texture.resource.Get(),
+            D3D12_RESOURCE_STATE_PRESENT,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+        commandList->ResourceBarrier(1, &barrier);
+
+        commandList->OMSetRenderTargets(1, &backBuffer[m_frameIndex].rtv, FALSE, &depthBuffer.dsv);
+
+        const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
+        commandList->ClearRenderTargetView(backBuffer[m_frameIndex].rtv, clear_color_with_alpha, 0, nullptr);*/
     }
 
     // ImGui
