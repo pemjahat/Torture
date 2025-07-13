@@ -129,6 +129,26 @@ struct FormattedBuffer
 	D3D12_INDEX_BUFFER_VIEW IBView() const;
 };
 
+struct RawBufferInit
+{
+	uint64_t numElements = 0;
+	bool cpuAccessible = false;
+	const void* initData = nullptr;
+	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_GENERIC_READ;
+	const wchar_t* name = nullptr;
+};
+
+struct RawBuffer
+{
+	Buffer internalBuffer;
+	uint64_t numElements = 0;
+	uint32_t SRV = uint32_t(-1);
+	D3D12_CPU_DESCRIPTOR_HANDLE UAV = {};
+
+	void Initialize(const RawBufferInit& init);
+	void Shutdown();
+};
+
 struct TextureInit
 {
 	uint32_t width = 0;

@@ -2,6 +2,8 @@
 
 #include "PCH.h"
 
+#define SizeOfInUint32(obj) ((sizeof(obj) - 1) / sizeof(uint32_t) + 1)
+
 inline void CheckHRESULT(HRESULT hr = S_OK)
 {
     if (FAILED(hr))

@@ -58,6 +58,21 @@ private:
         float padding;
     };
 
+    // Try raytracing
+    struct Viewport
+    {
+        float left;
+        float top;
+        float right;
+        float bottom;
+    };
+
+    struct RaygenConstantBuffer
+    {
+        Viewport viewport;
+        Viewport stencil;
+    };
+
     // Pipeline object
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;
@@ -95,6 +110,33 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE m_hiZDepthSrvGpuHandle;
     UINT m_hiZDescriptorSize;
 
+    // Testing ray tracing
+    ComPtr<ID3D12RootSignature> rtGlobalRootSignature;
+    ComPtr<ID3D12RootSignature> rtLocalRootSignature;
+    
+    RaygenConstantBuffer raygenCB;
+
+    ComPtr<ID3D12Resource> accelerationStructure;
+    RawBuffer blas;
+    RawBuffer tlas;
+
+    ComPtr<ID3D12Resource> rtOutput;
+    uint32_t rtOutputUAV;
+    D3D12_GPU_DESCRIPTOR_HANDLE rtOutputGpuHandle;
+
+    typedef uint16_t Index;
+    struct Vertex { float v1, v2, v3; };
+    StructuredBuffer rtVertexBuffer;
+    FormattedBuffer rtIndexBuffer;
+
+    static const wchar_t* hitGroupName;
+    static const wchar_t* raygenShaderName;
+    static const wchar_t* closestHitShaderName;
+    static const wchar_t* missShaderName;
+    ComPtr<ID3D12Resource> missShaderTable;
+    ComPtr<ID3D12Resource> hitGroupShaderTable;
+    ComPtr<ID3D12Resource> raygenShaderTable;
+
     // Synchronization
     UINT m_frameIndex;
     HANDLE m_fenceEvent;
@@ -124,6 +166,15 @@ private:
     std::string m_modelPath;
 
     std::wstring GetAssetFullPath(const std::string& relativePath);
+
+    // Raytrace
+    void CreateRTInterface();
+    void CreateRTRootSignature();
+    void CreateRTPipelineStateObject();
+    void BuildGeometry();
+    void BuildAccelerationStructure();
+    void BuildShaderTable();
+    void CreateRTOutput();
 
     void LoadPipeline();
     void LoadAsset(SDL_Window* window);

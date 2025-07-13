@@ -13,6 +13,7 @@ static D3D12_SAMPLER_DESC SamplerStateDesc[NumSamplerState] = {};
 DescriptorHeap rtvDescriptorHeap;
 DescriptorHeap dsvDescriptorHeap;
 DescriptorHeap srvDescriptorHeap;
+DescriptorHeap uavDescriptorHeap;
 
 static D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange = {};
 
@@ -22,6 +23,7 @@ void InitializeHelper()
 	rtvDescriptorHeap.Initialize(5, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	dsvDescriptorHeap.Initialize(1, D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 	srvDescriptorHeap.Initialize(1024, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	uavDescriptorHeap.Initialize(5, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 	// Descriptor range
 	srvDescriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -124,6 +126,7 @@ void ShutdownHelper()
 	srvDescriptorHeap.Shutdown();
 	dsvDescriptorHeap.Shutdown();
 	rtvDescriptorHeap.Shutdown();
+	uavDescriptorHeap.Shutdown();
 }
 
 const D3D12_DESCRIPTOR_RANGE1* SRVDescriptorRanges()
