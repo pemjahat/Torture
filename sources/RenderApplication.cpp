@@ -106,109 +106,108 @@ std::wstring RenderApplication::GetAssetFullPath(const std::string& relativePath
     return std::filesystem::absolute(absolutePath).wstring();
 }
 
-void RenderApplication::CreateRTInterface()
+void RenderApplication::CreateRT()
 {
-    CheckHRESULT(d3dDevice->QueryInterface(IID_PPV_ARGS(&dxrDevice)));
-    CheckHRESULT(commandList->QueryInterface(IID_PPV_ARGS(&dxrCommandList)));
+    // TODO: Compile raytrace shader
+
+    D3D12_DESCRIPTOR_RANGE1 uavDescriptor[1] = {};
+    uavDescriptor[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    uavDescriptor[0].NumDescriptors = 1;
+    uavDescriptor[0].BaseShaderRegister = 0;
+    uavDescriptor[0].RegisterSpace = 0;
+    uavDescriptor[0].OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_ROOT_PARAMETER1 rootParameters[2] = {};
+    rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[0].DescriptorTable.pDescriptorRanges = uavDescriptor;
+    rootParameters[0].DescriptorTable.NumDescriptorRanges = _countof(uavDescriptor);
+
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[1].Descriptor.RegisterSpace = 0;
+    rootParameters[1].Descriptor.ShaderRegister = 0;
+    rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
+    rootSignatureDesc.NumParameters = _countof(rootParameters);
+    rootSignatureDesc.pParameters = rootParameters;
+    rootSignatureDesc.NumStaticSamplers = 0;
+    rootSignatureDesc.pStaticSamplers = nullptr;
+
+    CreateRootSignature(rtRootSignature, rootSignatureDesc);
+
+    //CheckHRESULT(d3dDevice->QueryInterface(IID_PPV_ARGS(&dxrDevice)));
+    //CheckHRESULT(commandList->QueryInterface(IID_PPV_ARGS(&dxrCommandList)));
 }
 
-void RenderApplication::CreateRTRootSignature()
+void RenderApplication::CreateRTPipelineStateObject()
 {
-    // This is a root signature that is shared across all raytracing shaders invoked during a DispatchRays() call.
+    StateObjectBuilder builder;
+    builder.Init(12);
+
     {
-        D3D12_DESCRIPTOR_RANGE1 uavDescriptor[1] = {};
-        // Descriptor range
-        uavDescriptor[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-        uavDescriptor[0].NumDescriptors = 1;
-        uavDescriptor[0].BaseShaderRegister = 0;
-        uavDescriptor[0].RegisterSpace = 0;
-        uavDescriptor[0].OffsetInDescriptorsFromTableStart = 0;
-        uavDescriptor[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
-
-        D3D12_ROOT_PARAMETER1 rootParameters[2] = {};
-        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        rootParameters[0].DescriptorTable.pDescriptorRanges = uavDescriptor;
-        rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
-
-        rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-        rootParameters[1].Descriptor.RegisterSpace = 0;
-        rootParameters[1].Descriptor.ShaderRegister = 0;
-        rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
-
-        D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
-        rootSignatureDesc.NumParameters = _countof(rootParameters);
-        rootSignatureDesc.pParameters = rootParameters;
-        rootSignatureDesc.NumStaticSamplers = 0;
-        rootSignatureDesc.pStaticSamplers = nullptr;
-
-        CreateRootSignature(rtGlobalRootSignature, rootSignatureDesc);
+        // DXIL
+        D3D12_DXIL_LIBRARY_DESC dxilDesc = {};
+        dxilDesc.DXILLibrary = { raytraceLib->GetBufferPointer(), raytraceLib->GetBufferSize() };
+        builder.AddSubObject(dxilDesc);
     }
- 
-    // This is a root signature that enables a shader to have unique arguments that come from shader tables.
     {
-        D3D12_ROOT_PARAMETER1 rootParameters[1] = {};
-        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        rootParameters[0].Constants.Num32BitValues = SizeOfInUint32(raygenCB);
-        rootParameters[0].Constants.RegisterSpace = 0;
-        rootParameters[0].Constants.ShaderRegister = 0;
-        
-        D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
-        rootSignatureDesc.NumParameters = _countof(rootParameters);
-        rootSignatureDesc.pParameters = rootParameters;
-        rootSignatureDesc.NumStaticSamplers = 0;
-        rootSignatureDesc.pStaticSamplers = nullptr;
-        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE;
-
-        CreateRootSignature(rtLocalRootSignature, rootSignatureDesc);
+        // Closest hit
+        D3D12_HIT_GROUP_DESC hitDesc = {};
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hitDesc.ClosestHitShaderImport = L"MyClosestHitShader";
+        hitDesc.HitGroupExport = L"HitGroup";
+        builder.AddSubObject(hitDesc);
+    }
+    {
+        D3D12_RAYTRACING_SHADER_CONFIG shaderConfig = {};        
     }
 }
 
 void RenderApplication::CreateRTPipelineStateObject()
 {
-    CD3DX12_STATE_OBJECT_DESC raytracingPipeline{ D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE };
+    //CD3DX12_STATE_OBJECT_DESC raytracingPipeline{ D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE };
 
-    // DXIL library
-    auto lib = raytracingPipeline.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
-    D3D12_SHADER_BYTECODE libdxil = CD3DX12_SHADER_BYTECODE((void*)g_pRaytracing, _countof(g_pRaytracing));
-    lib->SetDXILLibrary(&libdxil);
-    {
-        lib->DefineExport(raygenShaderName);
-        lib->DefineExport(closestHitShaderName);
-        lib->DefineExport(missShaderName);
-    }
+    //// DXIL library
+    //auto lib = raytracingPipeline.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
+    //D3D12_SHADER_BYTECODE libdxil = CD3DX12_SHADER_BYTECODE((void*)g_pRaytracing, _countof(g_pRaytracing));
+    //lib->SetDXILLibrary(&libdxil);
+    //{
+    //    lib->DefineExport(raygenShaderName);
+    //    lib->DefineExport(closestHitShaderName);
+    //    lib->DefineExport(missShaderName);
+    //}
 
-    // Triangle hit group
-    auto hitGroup = raytracingPipeline.CreateSubobject<CD3DX12_HIT_GROUP_SUBOBJECT>();
-    hitGroup->SetClosestHitShaderImport(closestHitShaderName);
-    hitGroup->SetHitGroupExport(hitGroupName);
-    hitGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
+    //// Triangle hit group
+    //auto hitGroup = raytracingPipeline.CreateSubobject<CD3DX12_HIT_GROUP_SUBOBJECT>();
+    //hitGroup->SetClosestHitShaderImport(closestHitShaderName);
+    //hitGroup->SetHitGroupExport(hitGroupName);
+    //hitGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
 
-    // Shader config
-    auto shaderConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
-    uint32_t payloadSize = 4 * sizeof(float);   //float4 color
-    uint32_t attributeSize = 2 * sizeof(float); //float2 barrycentric
-    shaderConfig->Config(payloadSize, attributeSize);
+    //// Shader config
+    //auto shaderConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
+    //uint32_t payloadSize = 4 * sizeof(float);   //float4 color
+    //uint32_t attributeSize = 2 * sizeof(float); //float2 barrycentric
+    //shaderConfig->Config(payloadSize, attributeSize);
 
-    // Local root signature
-    auto localRootSignature = raytracingPipeline.CreateSubobject<CD3DX12_LOCAL_ROOT_SIGNATURE_SUBOBJECT>();
-    localRootSignature->SetRootSignature(rtLocalRootSignature.Get());
-    auto rootSignatureAssociation = raytracingPipeline.CreateSubobject<CD3DX12_SUBOBJECT_TO_EXPORTS_ASSOCIATION_SUBOBJECT>();
-    rootSignatureAssociation->SetSubobjectToAssociate(*localRootSignature);
-    rootSignatureAssociation->AddExport(raygenShaderName);
+    //// Local root signature
+    //auto localRootSignature = raytracingPipeline.CreateSubobject<CD3DX12_LOCAL_ROOT_SIGNATURE_SUBOBJECT>();
+    //localRootSignature->SetRootSignature(rtLocalRootSignature.Get());
+    //auto rootSignatureAssociation = raytracingPipeline.CreateSubobject<CD3DX12_SUBOBJECT_TO_EXPORTS_ASSOCIATION_SUBOBJECT>();
+    //rootSignatureAssociation->SetSubobjectToAssociate(*localRootSignature);
+    //rootSignatureAssociation->AddExport(raygenShaderName);
 
-    // Global root signature
-    auto globalRootSignature = raytracingPipeline.CreateSubobject<CD3DX12_GLOBAL_ROOT_SIGNATURE_SUBOBJECT>();
-    globalRootSignature->SetRootSignature(rtGlobalRootSignature.Get());
+    //// Global root signature
+    //auto globalRootSignature = raytracingPipeline.CreateSubobject<CD3DX12_GLOBAL_ROOT_SIGNATURE_SUBOBJECT>();
+    //globalRootSignature->SetRootSignature(rtGlobalRootSignature.Get());
 
-    // Pipeline config
-    auto pipelineConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_PIPELINE_CONFIG_SUBOBJECT>();
-    uint32_t maxRecursionDepth = 1; // primary ray only
-    pipelineConfig->Config(maxRecursionDepth);
-    
-    CheckHRESULT(dxrDevice->CreateStateObject(raytracingPipeline, IID_PPV_ARGS(&dxrStateObject)));
+    //// Pipeline config
+    //auto pipelineConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_PIPELINE_CONFIG_SUBOBJECT>();
+    //uint32_t maxRecursionDepth = 1; // primary ray only
+    //pipelineConfig->Config(maxRecursionDepth);
+    //
+    //CheckHRESULT(dxrDevice->CreateStateObject(raytracingPipeline, IID_PPV_ARGS(&dxrStateObject)));
 }
 
 void RenderApplication::CreateRTOutput()

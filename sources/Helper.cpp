@@ -256,3 +256,49 @@ void CompileShaderFromFile(
 		compileResult->GetResult(shaderBlob.GetAddressOf());
 	}
 }
+
+//
+// Raytrace
+//
+static const uint64_t MaxSubObjectDescSize = sizeof(D3D12_HIT_GROUP_DESC);
+
+void StateObjectBuilder::Init(uint64_t max)
+{
+	maxSubObjects = max;
+	subObjectData.resize(maxSubObjects, 0);
+
+	D3D12_STATE_SUBOBJECT defSubObj = {};
+	subObjects.resize(maxSubObjects, defSubObj);
+}
+
+const D3D12_STATE_SUBOBJECT* StateObjectBuilder::AddSubObject(const void* subObjDesc, uint64_t subObjDescSize, D3D12_STATE_SUBOBJECT_TYPE type)
+{
+	const uint64_t subObjOffset = numSubObjects * MaxSubObjectDescSize;
+	memcpy(subObjectData.data() + subObjOffset, subObjDesc, subObjDescSize);
+
+	D3D12_STATE_SUBOBJECT& newSubObj = subObjects[numSubObjects];
+	newSubObj.Type = type;
+	newSubObj.pDesc = subObjectData.data() + subObjOffset;
+
+	numSubObjects += 1;
+
+	return &newSubObj;
+}
+
+void StateObjectBuilder::BuildDesc(D3D12_STATE_OBJECT_TYPE type, D3D12_STATE_OBJECT_DESC& desc)
+{
+	desc.Type = type;
+	desc.NumSubobjects = uint32_t(numSubObjects);
+	desc.pSubobjects = numSubObjects ? subObjects.data() : nullptr;
+}
+
+ID3D12StateObject* StateObjectBuilder::CreateStateObject(D3D12_STATE_OBJECT_TYPE type)
+{
+	D3D12_STATE_OBJECT_DESC desc = {};
+	BuildDesc(type, desc);
+
+	ID3D12StateObject* stateObj = nullptr;
+	CheckHRESULT(dxrDevice->CreateStateObject(&desc, IID_PPV_ARGS(&stateObj)));
+
+	return stateObj;
+}

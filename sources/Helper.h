@@ -108,6 +108,58 @@ struct DescriptorHeapAllocator
     }
 };
 
+struct StateObjectBuilder
+{
+    std::vector<uint8_t> subObjectData;
+    std::vector<D3D12_STATE_SUBOBJECT> subObjects;
+    uint64_t numSubObjects = 0;
+    uint64_t maxSubObjects = 0;
+
+    void Init(uint64_t maxSubObjects);
+
+    const D3D12_STATE_SUBOBJECT* AddSubObject(const D3D12_GLOBAL_ROOT_SIGNATURE& subObjDesc)
+    {
+        return AddSubObject(&subObjDesc, sizeof(subObjDesc), D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE);
+    }
+
+    const D3D12_STATE_SUBOBJECT* AddSubObject(const D3D12_LOCAL_ROOT_SIGNATURE& subObjDesc)
+    {
+        return AddSubObject(&subObjDesc, sizeof(subObjDesc), D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE);
+    }
+
+    const D3D12_STATE_SUBOBJECT* AddSubObject(const D3D12_DXIL_LIBRARY_DESC& subObjDesc)
+    {
+        return AddSubObject(&subObjDesc, sizeof(subObjDesc), D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY);
+    }
+
+    const D3D12_STATE_SUBOBJECT* AddSubObject(const D3D12_RAYTRACING_SHADER_CONFIG& subObjDesc)
+    {
+        return AddSubObject(&subObjDesc, sizeof(subObjDesc), D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG);
+    }
+
+    const D3D12_STATE_SUBOBJECT* AddSubObject(const D3D12_HIT_GROUP_DESC& subObjDesc)
+    {
+        return AddSubObject(&subObjDesc, sizeof(subObjDesc), D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP);
+    }
+
+    const D3D12_STATE_SUBOBJECT* AddSubObject(const void* subObjDesc, uint64_t subObjDescSize, D3D12_STATE_SUBOBJECT_TYPE type);
+
+    void BuildDesc(D3D12_STATE_OBJECT_TYPE type, D3D12_STATE_OBJECT_DESC& desc);
+
+    ID3D12StateObject* CreateStateObject(D3D12_STATE_OBJECT_TYPE type);
+};
+
+struct ShaderIdentifier
+{
+    uint8_t data[D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES] = {};
+
+    ShaderIdentifier() = default;
+    explicit ShaderIdentifier(const void* idPointer)
+    {
+        memcpy(data, idPointer, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+    }
+};
+
 //void LogError(const char* message, HRESULT hr = S_OK)
 //{
 //    std::string errorMsg = message;

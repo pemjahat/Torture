@@ -111,31 +111,15 @@ private:
     UINT m_hiZDescriptorSize;
 
     // Testing ray tracing
-    ComPtr<ID3D12RootSignature> rtGlobalRootSignature;
-    ComPtr<ID3D12RootSignature> rtLocalRootSignature;
-    
-    RaygenConstantBuffer raygenCB;
-
-    ComPtr<ID3D12Resource> accelerationStructure;
+    ComPtr<IDxcBlob> raytraceLib;
+    RenderTexture rtBuffer;
+    ComPtr<ID3D12RootSignature> rtRootSignature;
+    ComPtr<ID3D12StateObject> rtPipelineState;
     RawBuffer blas;
     RawBuffer tlas;
-
-    ComPtr<ID3D12Resource> rtOutput;
-    uint32_t rtOutputUAV;
-    D3D12_GPU_DESCRIPTOR_HANDLE rtOutputGpuHandle;
-
-    typedef uint16_t Index;
-    struct Vertex { float v1, v2, v3; };
-    StructuredBuffer rtVertexBuffer;
-    FormattedBuffer rtIndexBuffer;
-
-    static const wchar_t* hitGroupName;
-    static const wchar_t* raygenShaderName;
-    static const wchar_t* closestHitShaderName;
-    static const wchar_t* missShaderName;
-    ComPtr<ID3D12Resource> missShaderTable;
-    ComPtr<ID3D12Resource> hitGroupShaderTable;
-    ComPtr<ID3D12Resource> raygenShaderTable;
+    StructuredBuffer rtRayGenTable;
+    StructuredBuffer rtHitTable;
+    StructuredBuffer rtMissTable;
 
     // Synchronization
     UINT m_frameIndex;
@@ -168,14 +152,9 @@ private:
     std::wstring GetAssetFullPath(const std::string& relativePath);
 
     // Raytrace
-    void CreateRTInterface();
-    void CreateRTRootSignature();
+    void CreateRT();
     void CreateRTPipelineStateObject();
-    void BuildGeometry();
-    void BuildAccelerationStructure();
-    void BuildShaderTable();
-    void CreateRTOutput();
-
+    
     void LoadPipeline();
     void LoadAsset(SDL_Window* window);
     void PopulateCommandList();
