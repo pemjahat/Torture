@@ -239,6 +239,11 @@ void CompileShaderFromFile(
 		arguments[1] = L"CSMain";
 		arguments[3] = L"cs_6_0";
 	}
+	else if (type == ShaderType::Library)
+	{
+		arguments[1] = L"";
+		arguments[3] = L"lib_6_0";
+	}
 
 	Microsoft::WRL::ComPtr<IDxcResult> compileResult;
 	dxcCompiler->Compile(&sourceBuffer, arguments, _countof(arguments), includeHandler.Get(), IID_PPV_ARGS(&compileResult));
@@ -298,7 +303,7 @@ ID3D12StateObject* StateObjectBuilder::CreateStateObject(D3D12_STATE_OBJECT_TYPE
 	BuildDesc(type, desc);
 
 	ID3D12StateObject* stateObj = nullptr;
-	CheckHRESULT(dxrDevice->CreateStateObject(&desc, IID_PPV_ARGS(&stateObj)));
+	CheckHRESULT(d3dDevice->CreateStateObject(&desc, IID_PPV_ARGS(&stateObj)));
 
 	return stateObj;
 }

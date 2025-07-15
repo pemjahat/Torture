@@ -32,6 +32,7 @@ enum class ShaderType
     Vertex = 0,
     Pixel,
     Compute,
+    Library,
     MaxShader
 };
 
@@ -137,6 +138,10 @@ struct StateObjectBuilder
         return AddSubObject(&subObjDesc, sizeof(subObjDesc), D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG);
     }
 
+    const D3D12_STATE_SUBOBJECT* AddSubObject(const D3D12_RAYTRACING_PIPELINE_CONFIG& subObjDesc)
+    {
+        return AddSubObject(&subObjDesc, sizeof(subObjDesc), D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG);
+    }
     const D3D12_STATE_SUBOBJECT* AddSubObject(const D3D12_HIT_GROUP_DESC& subObjDesc)
     {
         return AddSubObject(&subObjDesc, sizeof(subObjDesc), D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP);

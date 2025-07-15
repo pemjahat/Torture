@@ -37,6 +37,8 @@ public:
     void CreateRenderTargets();
     void RenderGBuffer(const DirectX::BoundingFrustum& frustum);
     void RenderDeferred(const ConstantBuffer* lightCB);
+    void RenderRaytracing();
+    void CopyRaytracingToBackBuffer();
 private:
     static const UINT FrameCount = 2;
     
@@ -120,6 +122,13 @@ private:
     StructuredBuffer rtRayGenTable;
     StructuredBuffer rtHitTable;
     StructuredBuffer rtMissTable;
+    ComPtr<ID3D12Resource> tempInstanceBuffer;
+
+    typedef UINT16 Index;
+    struct Vertex { float v1, v2, v3; };
+    StructuredBuffer rtVertexBuffer;
+    FormattedBuffer rtIndexBuffer;
+    RaygenConstantBuffer raygenCB;
 
     // Synchronization
     UINT m_frameIndex;
@@ -154,6 +163,8 @@ private:
     // Raytrace
     void CreateRT();
     void CreateRTPipelineStateObject();
+    void CreateRTGeometryTest();
+    void CreateRTAccelerationStructure();
     
     void LoadPipeline();
     void LoadAsset(SDL_Window* window);
