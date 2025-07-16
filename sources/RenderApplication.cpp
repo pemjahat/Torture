@@ -124,30 +124,43 @@ void RenderApplication::CreateRT()
         raytraceLib,
         ShaderType::Library);
 
-    D3D12_ROOT_PARAMETER1 rootParameters[3] = {};
+    D3D12_ROOT_PARAMETER1 rootParameters[5] = {};
+    // Acceleration structure
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     rootParameters[0].Descriptor.RegisterSpace = 0;
     rootParameters[0].Descriptor.ShaderRegister = 0;
     rootParameters[0].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
-
+    // Indices
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[1].Descriptor.RegisterSpace = 0;
+    rootParameters[1].Descriptor.ShaderRegister = 1;
+    rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    // Vertices
+    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[2].Descriptor.RegisterSpace = 0;
+    rootParameters[2].Descriptor.ShaderRegister = 2;
+    rootParameters[2].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    // UAV
     D3D12_DESCRIPTOR_RANGE1 uavRanges[1] = {};
     uavRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     uavRanges[0].NumDescriptors = 1;
     uavRanges[0].BaseShaderRegister = 0;
     uavRanges[0].RegisterSpace = 0;
     uavRanges[0].OffsetInDescriptorsFromTableStart = 0;
+    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[3].DescriptorTable.pDescriptorRanges = uavRanges;
+    rootParameters[3].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
 
-    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[1].DescriptorTable.pDescriptorRanges = uavRanges;
-    rootParameters[1].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
-    
-    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[2].Constants.Num32BitValues = SizeOfInUint32(raygenCB);
-    rootParameters[2].Constants.RegisterSpace = 0;
-    rootParameters[2].Constants.ShaderRegister = 0;
+    // Scene + Light CB
+    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[4].Descriptor.RegisterSpace = 0;
+    rootParameters[4].Descriptor.ShaderRegister = 0;
+    rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
 
     D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
     rootSignatureDesc.NumParameters = _countof(rootParameters);
@@ -254,18 +267,60 @@ void RenderApplication::CreateRTPipelineStateObject()
 
 void RenderApplication::CreateRTGeometryTest()
 {
-    Index indices[] = { 0, 1, 2 };
+    // Cube indices.
+    Index indices[] =
+    {
+        3,1,0,
+        2,1,3,
 
-    float depthValue = 1.0f;
-    float offset = 0.7f;
+        6,4,5,
+        7,4,6,
+
+        11,9,8,
+        10,9,11,
+
+        14,12,13,
+        15,12,14,
+
+        19,17,16,
+        18,17,19,
+
+        22,20,21,
+        23,20,22
+    };
+
+    // Cube vertices positions and corresponding triangle normals.
     Vertex vertices[] =
     {
-        // The sample raytraces in screen space coordinates.
-        // Since DirectX screen space coordinates are right handed (i.e. Y axis points down).
-        // Define the vertices in counter clockwise order ~ clockwise in left handed.
-        {0, -offset, depthValue},
-        {-offset, offset, depthValue},
-        {offset, offset, depthValue}
+        { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+
+        { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
+        { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
+        { XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
+
+        { XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+
+        { XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+        { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+
+        { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
+        { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
+        { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
+
+        { XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+        { XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+        { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
     };
 
     // Create vertex buffer
@@ -278,29 +333,35 @@ void RenderApplication::CreateRTGeometryTest()
     rtVertexBuffer.Initialize(sbi);
 
     // Create index buffer
-    FormattedBufferInit fbi;
+    RawBufferInit rbi;
+    rbi.numElements = sizeof(indices) / RawBuffer::Stride; // Since index is 16 bits, but raw buffer process in 32 bits
+    rbi.cpuAccessible = true;
+    rbi.allowUAV = false;
+    rbi.initData = indices;
+    rbi.name = L"RaytraceIndexBuffer";
+    rtIndexBuffer.Initialize(rbi);
+    /*FormattedBufferInit fbi;
     fbi.cpuAccessible = true;
-    fbi.format = DXGI_FORMAT_R32_UINT;
+    fbi.format = DXGI_FORMAT_R16_UINT;
     fbi.bitSize = 16;
     fbi.numElements = _countof(indices);
     fbi.initData = indices;
-    fbi.name = L"RaytraceIndexBuffer";
-    rtIndexBuffer.Initialize(fbi);
+    fbi.name = L"RaytraceIndexBuffer";*/
 }
 
 void RenderApplication::CreateRTAccelerationStructure()
 {
-    const FormattedBuffer& idxBuffer = rtIndexBuffer;
+    const RawBuffer& idxBuffer = rtIndexBuffer;
     const StructuredBuffer& vtxBuffer = rtVertexBuffer;
 
     D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc = {};
     geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
     geometryDesc.Triangles.IndexBuffer = idxBuffer.internalBuffer.gpuAddress;
-    geometryDesc.Triangles.IndexCount = 3;
+    geometryDesc.Triangles.IndexCount = static_cast<UINT>(idxBuffer.internalBuffer.resource->GetDesc().Width) / sizeof(Index);
     geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
     geometryDesc.Triangles.Transform3x4 = 0;
     geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-    geometryDesc.Triangles.VertexCount = 3;
+    geometryDesc.Triangles.VertexCount = static_cast<UINT>(vtxBuffer.internalBuffer.resource->GetDesc().Width) / sizeof(Vertex);
     geometryDesc.Triangles.VertexBuffer.StartAddress = vtxBuffer.internalBuffer.gpuAddress;
     geometryDesc.Triangles.VertexBuffer.StrideInBytes = vtxBuffer.stride;
     geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
@@ -1037,8 +1098,10 @@ void RenderApplication::RenderRaytracing()
     ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
     commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
     commandList->SetComputeRootShaderResourceView(0, tlas.internalBuffer.gpuAddress);
-    commandList->SetComputeRootDescriptorTable(1, rtBuffer.uavGpuAddress);
-    commandList->SetComputeRoot32BitConstants(2, SizeOfInUint32(raygenCB), &raygenCB, 0);
+    commandList->SetComputeRootShaderResourceView(1, rtIndexBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(2, rtVertexBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootDescriptorTable(3, rtBuffer.uavGpuAddress);
+    m_sceneCB.SetAsComputeRootParameter(commandList.Get(), 4);    
 
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier = CD3DX12_RESOURCE_BARRIER::Transition(
@@ -1078,15 +1141,15 @@ void RenderApplication::CopyRaytracingToBackBuffer()
     barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer[m_frameIndex].texture.resource.Get(),
         D3D12_RESOURCE_STATE_COPY_DEST,
-        D3D12_RESOURCE_STATE_PRESENT);
+        D3D12_RESOURCE_STATE_RENDER_TARGET);
     commandList->ResourceBarrier(1, &barrier);
 }
 
 void RenderApplication::PopulateCommandList()
 {
     // Start dear imgui frame
-    //ImGui_ImplDX12_NewFrame();
-    //ImGui::NewFrame();
+    ImGui_ImplDX12_NewFrame();
+    ImGui::NewFrame();
 
     static bool show_another_window = false;
     static bool show_demo_window = true;
@@ -1095,45 +1158,45 @@ void RenderApplication::PopulateCommandList()
     //ImGui::ShowDemoWindow(&show_demo_window);
 
     // Simple window
-    //{
-    //    static float f = 0.f;
-    //    static int counter = 0;
+    {
+        static float f = 0.f;
+        static int counter = 0;
 
-    //    ImGui::Begin("Hello, world!");
+        ImGui::Begin("Hello, world!");
 
-    //    ImGui::Text("This is some useful text.");
-    //    ImGui::Checkbox("Another window", &show_another_window);
+        ImGui::Text("This is some useful text.");
+        ImGui::Checkbox("Another window", &show_another_window);
 
-    //    ImGui::Text("Camera");
-    //    ImGui::SliderFloat("MoveSpeed", &m_moveSpeed, 1.f, 1000.f);
+        ImGui::Text("Camera");
+        ImGui::SliderFloat("MoveSpeed", &m_moveSpeed, 1.f, 1000.f);
 
-    //    ImGui::ColorEdit3("clear color", (float*)&clear_color);
+        ImGui::ColorEdit3("clear color", (float*)&clear_color);
 
-    //    ImGui::Text("Directional Light");
-    //    ImGui::ColorEdit3("Light Color", (float*)&m_directionalLight.color);
-    //    ImGui::SliderFloat("Light Azimuth", &m_azimuth, 0.f, XM_2PI, "%.2f");
-    //    ImGui::SliderFloat("Light Elevation", &m_elevation, -XM_PIDIV2, XM_PIDIV2, "%.2f");
+        ImGui::Text("Directional Light");
+        ImGui::ColorEdit3("Light Color", (float*)&m_directionalLight.color);
+        ImGui::SliderFloat("Light Azimuth", &m_azimuth, 0.f, XM_2PI, "%.2f");
+        ImGui::SliderFloat("Light Elevation", &m_elevation, -XM_PIDIV2, XM_PIDIV2, "%.2f");
 
-    //    /*if (ImGui::Button("Button"))
-    //        counter++;
-    //    ImGui::SameLine();
-    //    ImGui::Text("counter = %d", counter);*/
+        /*if (ImGui::Button("Button"))
+            counter++;
+        ImGui::SameLine();
+        ImGui::Text("counter = %d", counter);*/
 
-    //    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    //    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.f / io.Framerate, io.Framerate);
-    //    ImGui::End();
-    //}
+        ImGuiIO& io = ImGui::GetIO(); (void)io;
+        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.f / io.Framerate, io.Framerate);
+        ImGui::End();
+    }
 
-    //if (show_another_window)
-    //{
-    //    ImGui::Begin("Another window", &show_another_window);
-    //    ImGui::Text("Hello from another window");
-    //    if (ImGui::Button("Close Me"))
-    //        show_another_window = false;
-    //    ImGui::End();
-    //}
-    //// Render
-    //ImGui::Render();
+    if (show_another_window)
+    {
+        ImGui::Begin("Another window", &show_another_window);
+        ImGui::Text("Hello from another window");
+        if (ImGui::Button("Close Me"))
+            show_another_window = false;
+        ImGui::End();
+    }
+    // Render
+    ImGui::Render();
 
     CheckHRESULT(commandAllocator->Reset());
     CheckHRESULT(commandList->Reset(commandAllocator.Get(), nullptr));
@@ -1250,18 +1313,18 @@ void RenderApplication::PopulateCommandList()
     }
 
     // ImGui
-    /*{
+    {
         ID3D12DescriptorHeap* ppDescHeaps[] = { m_imguiDescHeap.Get() };
         commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());
-    }*/
+    }
 
-    /*D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+    D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer[m_frameIndex].texture.resource.Get(),
         D3D12_RESOURCE_STATE_RENDER_TARGET,
         D3D12_RESOURCE_STATE_PRESENT
     );
-    commandList->ResourceBarrier(1, &barrier);*/
+    commandList->ResourceBarrier(1, &barrier);
     
     CheckHRESULT(commandList->Close());
 }

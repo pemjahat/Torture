@@ -126,8 +126,8 @@ struct FormattedBufferInit
 struct FormattedBuffer
 {
 	Buffer internalBuffer;
-	uint64_t stride = 0;
-	uint64_t numElements = 0;
+	uint64_t Stride = 0;
+	uint64_t NumElements = 0;
 	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
 
 	void Initialize(const FormattedBufferInit& init);

@@ -101,7 +101,7 @@ set(IMGUI_SOURCES
 target_sources(${PROJECT_NAME} PRIVATE ${IMGUI_SOURCES})
 
 # Add hlsl into project(no compile)
-file(GLOB SHADER_FILES "${CMAKE_SOURCE_DIR}/shaders/*.hlsl")
+file(GLOB SHADER_FILES "${CMAKE_SOURCE_DIR}/shaders/*.*")
 source_group("Shader Files" FILES ${SHADER_FILES})
 target_sources(${PROJECT_NAME} PRIVATE ${SHADER_FILES})
 

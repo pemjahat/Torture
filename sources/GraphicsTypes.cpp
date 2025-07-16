@@ -343,11 +343,11 @@ void FormattedBuffer::Initialize(const FormattedBufferInit& init)
 {
 	assert(init.format != DXGI_FORMAT_UNKNOWN);
 	assert(init.numElements > 0);
-	stride = init.bitSize / 8;
-	numElements = init.numElements;
+	Stride = init.bitSize / 8;
+	NumElements = init.numElements;
 	format = init.format;
 
-	internalBuffer.Initialize(stride * numElements, stride, false, false, init.initData, init.initState, init.name);
+	internalBuffer.Initialize(Stride * NumElements, Stride, init.cpuAccessible, false, init.initData, init.initState, init.name);
 }
 
 void FormattedBuffer::Shutdown()
@@ -361,7 +361,7 @@ D3D12_INDEX_BUFFER_VIEW FormattedBuffer::IBView() const
 	D3D12_INDEX_BUFFER_VIEW ibView = {};
 	ibView.BufferLocation = internalBuffer.gpuAddress;
 	ibView.Format = format;
-	ibView.SizeInBytes = stride * numElements;
+	ibView.SizeInBytes = Stride * NumElements;
 	return ibView;
 }
 
@@ -387,17 +387,20 @@ void RawBuffer::Initialize(const RawBufferInit& init)
 	srvDesc.Buffer.NumElements = uint32_t(NumElements);
 	d3dDevice->CreateShaderResourceView(internalBuffer.resource.Get(), &srvDesc, srvAlloc.cpuHandle);
 
-	DescriptorAlloc uavAlloc = srvDescriptorHeap.Allocate();
-	UAV = uavAlloc.cpuHandle;
+	if (init.allowUAV)
+	{
+		DescriptorAlloc uavAlloc = srvDescriptorHeap.Allocate();
+		UAV = uavAlloc.cpuHandle;
 
-	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-	uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-	uavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
-	uavDesc.Buffer.CounterOffsetInBytes = 0;
-	uavDesc.Buffer.FirstElement = 0;
-	uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-	uavDesc.Buffer.NumElements = uint32_t(NumElements);
-	d3dDevice->CreateUnorderedAccessView(internalBuffer.resource.Get(), nullptr, &uavDesc, UAV);
+		D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+		uavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+		uavDesc.Buffer.CounterOffsetInBytes = 0;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+		uavDesc.Buffer.NumElements = uint32_t(NumElements);
+		d3dDevice->CreateUnorderedAccessView(internalBuffer.resource.Get(), nullptr, &uavDesc, UAV);
+	}
 }
 
 void RawBuffer::Shutdown()

@@ -1,26 +1,6 @@
 #ifndef _COMMON_HLSL_
 #define _COMMON_HLSL_
 
-struct SceneConstantBuffer
-{
-    float4x4 World;
-    float4x4 WorldView;
-    float4x4 WorldViewProj;
-    
-    float2 InvTextureSize;
-    float2 HiZDimension;
-
-    float4 padding[3];
-};
-
-struct LightData
-{
-    float3 direction;
-    float intensity;
-    float3 color;
-    float padded;
-};
-
 struct ModelConstants
 {
     uint meshIndex; // index for mesh structured buffer

@@ -1,5 +1,7 @@
 // basic.hlsl (depth only)
 #include "common.hlsl"
+#define HLSL
+#include "HLSLCompatible.h"
 
 struct DeferredConstant
 {

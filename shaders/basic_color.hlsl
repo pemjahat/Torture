@@ -1,24 +1,6 @@
 #include "common.hlsl"
-
-cbuffer SceneConstantBuffer : register(b0)
-{
-    float4x4 World;
-    float4x4 WorldView;
-    float4x4 WorldViewProj;
-    
-    float2 InvTextureSize;
-    float2 HiZDimension;
-
-    float4 padding[3];
-};
-
-cbuffer LightData : register(b1)
-{
-    float3 direction;
-    float intensity;
-    float3 color;
-    float padded;
-};
+#define HLSL
+#include "HLSLCompatible.h"
 
 struct VSInput
 {

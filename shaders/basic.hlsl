@@ -1,5 +1,7 @@
 // basic.hlsl (depth only)
 #include "common.hlsl"
+#define HLSL
+#include "HLSLCompatible.h"
 
 ConstantBuffer<SceneConstantBuffer> sceneCB : register(b0);
 ConstantBuffer<ModelConstants> modelConstants : register(b2);

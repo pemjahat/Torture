@@ -7,6 +7,7 @@
 #include "SimpleCamera.h"
 #include "DX12.h"
 #include "GraphicsTypes.h"
+#include "../Shaders/HLSLCompatible.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -42,23 +43,7 @@ public:
 private:
     static const UINT FrameCount = 2;
     
-    struct SceneConstantBuffer
-    {
-        XMFLOAT4X4 World;
-        XMFLOAT4X4 WorldView;
-        XMFLOAT4X4 WorldViewProj;
-        XMFLOAT2 InvTextureSize;
-        XMFLOAT2 HiZDimension;
-        //float padding[12];  // padd to 256byte aligned
-    };
-
-    struct LightData
-    {
-        XMFLOAT3 direction;
-        float intensity;
-        XMFLOAT3 color;
-        float padding;
-    };
+    
 
     // Try raytracing
     struct Viewport
@@ -126,9 +111,8 @@ private:
     ComPtr<ID3D12Resource> tempInstanceBuffer;
 
     typedef UINT16 Index;
-    struct Vertex { float v1, v2, v3; };
     StructuredBuffer rtVertexBuffer;
-    FormattedBuffer rtIndexBuffer;
+    RawBuffer rtIndexBuffer;
     RaygenConstantBuffer raygenCB;
 
     // Synchronization
