@@ -124,6 +124,13 @@ void RenderApplication::CreateRT()
         raytraceLib,
         ShaderType::Library);
 
+    D3D12_ROOT_PARAMETER1 rootParameters[3] = {};
+    rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[0].Descriptor.RegisterSpace = 0;
+    rootParameters[0].Descriptor.ShaderRegister = 0;
+    rootParameters[0].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
     D3D12_DESCRIPTOR_RANGE1 uavRanges[1] = {};
     uavRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     uavRanges[0].NumDescriptors = 1;
@@ -131,18 +138,11 @@ void RenderApplication::CreateRT()
     uavRanges[0].RegisterSpace = 0;
     uavRanges[0].OffsetInDescriptorsFromTableStart = 0;
 
-    D3D12_ROOT_PARAMETER1 rootParameters[3] = {};
-    rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[0].DescriptorTable.pDescriptorRanges = uavRanges;
-    rootParameters[0].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
-
-    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    rootParameters[1].Descriptor.RegisterSpace = 0;
-    rootParameters[1].Descriptor.ShaderRegister = 0;
-    rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
-
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[1].DescriptorTable.pDescriptorRanges = uavRanges;
+    rootParameters[1].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
+    
     rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     rootParameters[2].Constants.Num32BitValues = SizeOfInUint32(raygenCB);
@@ -160,8 +160,20 @@ void RenderApplication::CreateRT()
 
 void RenderApplication::CreateRTPipelineStateObject()
 {
+    // Create 7 subobjects that combine into a RTPSO:
+    // Subobjects need to be associated with DXIL exports (i.e. shaders) either by way of default or explicit associations.
+    // Default association applies to every exported shader entrypoint that doesn't have any of the same type of subobject associated with it.
+    // This simple sample utilizes default shader association except for local root signature subobject
+    // which has an explicit association specified purely for demonstration purposes.
+    // 1 - DXIL library
+    // 1 - Triangle hit group
+    // 1 - Shader config
+    // 2 - Local root signature and association
+    // 1 - Global root signature
+    // 1 - Pipeline config
+
     StateObjectBuilder builder;
-    builder.Init(6);
+    builder.Init(7);
 
     {
         // DXIL
@@ -174,7 +186,7 @@ void RenderApplication::CreateRTPipelineStateObject()
         D3D12_HIT_GROUP_DESC hitDesc = {};
         hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
         hitDesc.ClosestHitShaderImport = L"MyClosestHitShader";
-        hitDesc.HitGroupExport = L"HitGroup";
+        hitDesc.HitGroupExport = L"MyHitGroup";
         builder.AddSubObject(hitDesc);
     }
     {
@@ -201,8 +213,8 @@ void RenderApplication::CreateRTPipelineStateObject()
     rtPipelineState->QueryInterface(IID_PPV_ARGS(&psoProps));
 
     const void* raygenID = psoProps->GetShaderIdentifier(L"MyRaygenShader");
-    const void* hitgroupID = psoProps->GetShaderIdentifier(L"MyClosestHitShader");
     const void* missID = psoProps->GetShaderIdentifier(L"MyMissShader");
+    const void* hitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup");
 
     // Shader tables
     {
@@ -211,7 +223,8 @@ void RenderApplication::CreateRTPipelineStateObject()
         StructuredBufferInit sbInit;
         sbInit.stride = sizeof(ShaderIdentifier);
         sbInit.numElements = _countof(raygenRecords);
-        sbInit.initData = raygenRecords;        
+        sbInit.initData = raygenRecords;
+        sbInit.name = L"Raygen Shader Table";
         rtRayGenTable.Initialize(sbInit);
     }
     {
@@ -221,6 +234,7 @@ void RenderApplication::CreateRTPipelineStateObject()
         sbInit.stride = sizeof(ShaderIdentifier);
         sbInit.numElements = _countof(missRecords);
         sbInit.initData = missRecords;
+        sbInit.name = L"Miss Shader Table";
         rtMissTable.Initialize(sbInit);
     }
     {
@@ -230,6 +244,7 @@ void RenderApplication::CreateRTPipelineStateObject()
         sbInit.stride = sizeof(ShaderIdentifier);
         sbInit.numElements = _countof(hitRecords);
         sbInit.initData = hitRecords;
+        sbInit.name = L"Hit Shader Table";
         rtHitTable.Initialize(sbInit);
     }
 
@@ -255,20 +270,20 @@ void RenderApplication::CreateRTGeometryTest()
 
     // Create vertex buffer
     StructuredBufferInit sbi;
+    sbi.cpuAccessible = true;
     sbi.stride = sizeof(Vertex);
     sbi.numElements = _countof(vertices);
-    sbi.initData = vertices;
-    sbi.initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+    sbi.initData = vertices;    
     sbi.name = L"RaytraceVertexBuffer";
     rtVertexBuffer.Initialize(sbi);
 
     // Create index buffer
     FormattedBufferInit fbi;
+    fbi.cpuAccessible = true;
     fbi.format = DXGI_FORMAT_R32_UINT;
     fbi.bitSize = 16;
     fbi.numElements = _countof(indices);
     fbi.initData = indices;
-    fbi.initState = D3D12_RESOURCE_STATE_INDEX_BUFFER;
     fbi.name = L"RaytraceIndexBuffer";
     rtIndexBuffer.Initialize(fbi);
 }
@@ -315,7 +330,6 @@ void RenderApplication::CreateRTAccelerationStructure()
     }
     assert(botLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0);
 
-    RawBuffer scratchBuffer;
     {
         RawBufferInit rbi;
         rbi.numElements = std::max(topLevelPrebuildInfo.ScratchDataSizeInBytes, botLevelPrebuildInfo.ScratchDataSizeInBytes) / RawBuffer::Stride;
@@ -753,10 +767,14 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     //std::wstring gltfPath = GetAssetFullPath("content/Sponza/Sponza.gltf");
     std::wstring gltfPath = GetAssetFullPath(m_modelPath);
         
-    m_model.LoadFromFile(WStringToString(gltfPath));
-    m_model.LoadShader(shaderPath);
-    m_model.CreatePSO();
-    m_model.UploadGpuResources();
+    //m_model.LoadFromFile(WStringToString(gltfPath));
+    //m_model.LoadShader(shaderPath);
+    //m_model.CreatePSO();
+    //m_model.UploadGpuResources();
+    CreateRTGeometryTest();
+    CreateRT();
+    CreateRTPipelineStateObject();
+    CreateRTAccelerationStructure();
 
     // ImGui
     // ImGui Renderer backend
@@ -918,6 +936,7 @@ void RenderApplication::CreateRenderTargets()
         rti.height = m_height;
         rti.format = DXGI_FORMAT_R8G8B8A8_UNORM;
         rti.allowUAV = true;
+        rti.initState = D3D12_RESOURCE_STATE_COPY_SOURCE;
         rtBuffer.Initialize(rti);
     }
 }
@@ -1015,16 +1034,16 @@ void RenderApplication::RenderRaytracing()
     commandList->SetPipelineState1(rtPipelineState.Get());
 
     // Bind
-    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get(), uavDescriptorHeap.heap.Get() };
+    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
     commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
-    commandList->SetComputeRootDescriptorTable(0, rtBuffer.uavGpuAddress);
-    commandList->SetComputeRootShaderResourceView(1, tlas.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(0, tlas.internalBuffer.gpuAddress);
+    commandList->SetComputeRootDescriptorTable(1, rtBuffer.uavGpuAddress);
     commandList->SetComputeRoot32BitConstants(2, SizeOfInUint32(raygenCB), &raygenCB, 0);
 
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         rtBuffer.texture.resource.Get(),
-        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_COPY_SOURCE,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     commandList->ResourceBarrier(1, &barrier);
 
@@ -1040,7 +1059,7 @@ void RenderApplication::RenderRaytracing()
     barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         rtBuffer.texture.resource.Get(),
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        D3D12_RESOURCE_STATE_COPY_SOURCE);
     commandList->ResourceBarrier(1, &barrier);
 }
 
@@ -1050,8 +1069,9 @@ void RenderApplication::CopyRaytracingToBackBuffer()
 
     barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer[m_frameIndex].texture.resource.Get(),
-        D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_PRESENT,
         D3D12_RESOURCE_STATE_COPY_DEST);
+    
     commandList->ResourceBarrier(1, &barrier);
     commandList->CopyResource(backBuffer[m_frameIndex].texture.resource.Get(), rtBuffer.texture.resource.Get());
 
@@ -1065,8 +1085,8 @@ void RenderApplication::CopyRaytracingToBackBuffer()
 void RenderApplication::PopulateCommandList()
 {
     // Start dear imgui frame
-    ImGui_ImplDX12_NewFrame();
-    ImGui::NewFrame();
+    //ImGui_ImplDX12_NewFrame();
+    //ImGui::NewFrame();
 
     static bool show_another_window = false;
     static bool show_demo_window = true;
@@ -1075,45 +1095,45 @@ void RenderApplication::PopulateCommandList()
     //ImGui::ShowDemoWindow(&show_demo_window);
 
     // Simple window
-    {
-        static float f = 0.f;
-        static int counter = 0;
+    //{
+    //    static float f = 0.f;
+    //    static int counter = 0;
 
-        ImGui::Begin("Hello, world!");
+    //    ImGui::Begin("Hello, world!");
 
-        ImGui::Text("This is some useful text.");
-        ImGui::Checkbox("Another window", &show_another_window);
+    //    ImGui::Text("This is some useful text.");
+    //    ImGui::Checkbox("Another window", &show_another_window);
 
-        ImGui::Text("Camera");
-        ImGui::SliderFloat("MoveSpeed", &m_moveSpeed, 1.f, 1000.f);
+    //    ImGui::Text("Camera");
+    //    ImGui::SliderFloat("MoveSpeed", &m_moveSpeed, 1.f, 1000.f);
 
-        ImGui::ColorEdit3("clear color", (float*)&clear_color);
+    //    ImGui::ColorEdit3("clear color", (float*)&clear_color);
 
-        ImGui::Text("Directional Light");
-        ImGui::ColorEdit3("Light Color", (float*)&m_directionalLight.color);
-        ImGui::SliderFloat("Light Azimuth", &m_azimuth, 0.f, XM_2PI, "%.2f");
-        ImGui::SliderFloat("Light Elevation", &m_elevation, -XM_PIDIV2, XM_PIDIV2, "%.2f");
+    //    ImGui::Text("Directional Light");
+    //    ImGui::ColorEdit3("Light Color", (float*)&m_directionalLight.color);
+    //    ImGui::SliderFloat("Light Azimuth", &m_azimuth, 0.f, XM_2PI, "%.2f");
+    //    ImGui::SliderFloat("Light Elevation", &m_elevation, -XM_PIDIV2, XM_PIDIV2, "%.2f");
 
-        /*if (ImGui::Button("Button"))
-            counter++;
-        ImGui::SameLine();
-        ImGui::Text("counter = %d", counter);*/
+    //    /*if (ImGui::Button("Button"))
+    //        counter++;
+    //    ImGui::SameLine();
+    //    ImGui::Text("counter = %d", counter);*/
 
-        ImGuiIO& io = ImGui::GetIO(); (void)io;
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.f / io.Framerate, io.Framerate);
-        ImGui::End();
-    }
+    //    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    //    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.f / io.Framerate, io.Framerate);
+    //    ImGui::End();
+    //}
 
-    if (show_another_window)
-    {
-        ImGui::Begin("Another window", &show_another_window);
-        ImGui::Text("Hello from another window");
-        if (ImGui::Button("Close Me"))
-            show_another_window = false;
-        ImGui::End();
-    }
-    // Render
-    ImGui::Render();
+    //if (show_another_window)
+    //{
+    //    ImGui::Begin("Another window", &show_another_window);
+    //    ImGui::Text("Hello from another window");
+    //    if (ImGui::Button("Close Me"))
+    //        show_another_window = false;
+    //    ImGui::End();
+    //}
+    //// Render
+    //ImGui::Render();
 
     CheckHRESULT(commandAllocator->Reset());
     CheckHRESULT(commandList->Reset(commandAllocator.Get(), nullptr));
@@ -1125,12 +1145,12 @@ void RenderApplication::PopulateCommandList()
 
     // Depth only pass
     {
-        commandList->OMSetRenderTargets(0, nullptr, FALSE, &depthBuffer.dsv);
+        /*commandList->OMSetRenderTargets(0, nullptr, FALSE, &depthBuffer.dsv);
         commandList->ClearDepthStencilView(depthBuffer.dsv, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
 
         m_model.RenderDepthOnly(
             &m_sceneCB,            
-            frustum);
+            frustum);*/
 
         // Temporary
         /*D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
@@ -1205,7 +1225,7 @@ void RenderApplication::PopulateCommandList()
     }
     // Main pass
     {
-        RenderGBuffer(frustum);
+        /*RenderGBuffer(frustum);
 
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier = CD3DX12_RESOURCE_BARRIER::Transition(
@@ -1220,22 +1240,28 @@ void RenderApplication::PopulateCommandList()
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
         commandList->ClearRenderTargetView(backBuffer[m_frameIndex].rtv, clear_color_with_alpha, 0, nullptr);
 
-        RenderDeferred(&m_lightCB);
+        RenderDeferred(&m_lightCB);*/
+    }
+    // Ray tracing
+    {
+        RenderRaytracing();
+
+        CopyRaytracingToBackBuffer();
     }
 
     // ImGui
-    {
+    /*{
         ID3D12DescriptorHeap* ppDescHeaps[] = { m_imguiDescHeap.Get() };
         commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());
-    }
+    }*/
 
-    D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+    /*D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer[m_frameIndex].texture.resource.Get(),
         D3D12_RESOURCE_STATE_RENDER_TARGET,
         D3D12_RESOURCE_STATE_PRESENT
     );
-    commandList->ResourceBarrier(1, &barrier);
+    commandList->ResourceBarrier(1, &barrier);*/
     
     CheckHRESULT(commandList->Close());
 }

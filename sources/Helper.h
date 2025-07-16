@@ -40,7 +40,6 @@ enum class ShaderType
 extern DescriptorHeap rtvDescriptorHeap;
 extern DescriptorHeap dsvDescriptorHeap;
 extern DescriptorHeap srvDescriptorHeap;
-extern DescriptorHeap uavDescriptorHeap;
 
 // Once
 void InitializeHelper();

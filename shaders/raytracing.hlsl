@@ -25,10 +25,10 @@ struct RayPayload
 bool IsInsideViewport(float2 p, Viewport viewport)
 {
     return (p.x >= viewport.left && p.x <= viewport.right)
-        && (p.y >= viewport.top && p.y <= viewport.bottom)
+        && (p.y >= viewport.top && p.y <= viewport.bottom);
 }
 
-[shader["raygeneration"]]
+[shader("raygeneration")]
 void MyRaygenShader()
 {
     float2 lerpValues = (float2) DispatchRaysIndex() / (float2) DispatchRaysDimensions();
@@ -61,14 +61,14 @@ void MyRaygenShader()
     }
 }
 
-[shader["closesthit"]]
+[shader("closesthit")]
 void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
 {
     float3 barrycentrics = float3(1 - attr.barycentrics.x - attr.barycentrics.y, attr.barycentrics.x, attr.barycentrics.y);
     payload.color = float4(barrycentrics, 1.f);
 }
 
-[shader["miss"]]
+[shader("miss")]
 void MyMissShader(inout RayPayload payload)
 {
     payload.color = float4(0, 0, 0, 0);

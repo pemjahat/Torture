@@ -87,10 +87,11 @@ struct ConstantBuffer
 
 struct StructuredBufferInit
 {
+	bool cpuAccessible = false;
 	uint64_t stride = 0;
 	uint64_t numElements = 0;
 	const void* initData = nullptr;
-	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_GENERIC_READ;
 	const wchar_t* name = nullptr;
 };
 struct StructuredBuffer
@@ -116,6 +117,7 @@ struct FormattedBufferInit
 {
 	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
 	uint32_t bitSize = 0;
+	bool cpuAccessible = true;
 	uint64_t numElements = 0;
 	const void* initData = nullptr;
 	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_GENERIC_READ;
@@ -205,6 +207,7 @@ struct RenderTextureInit
 	uint32_t height = 0;
 	bool allowUAV = false;
 	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 };
 
 struct RenderTexture

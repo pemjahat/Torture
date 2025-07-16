@@ -13,17 +13,15 @@ static D3D12_SAMPLER_DESC SamplerStateDesc[NumSamplerState] = {};
 DescriptorHeap rtvDescriptorHeap;
 DescriptorHeap dsvDescriptorHeap;
 DescriptorHeap srvDescriptorHeap;
-DescriptorHeap uavDescriptorHeap;
 
 static D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange = {};
 
 void InitializeHelper()
 {
 	// Descriptor heap
-	rtvDescriptorHeap.Initialize(5, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	rtvDescriptorHeap.Initialize(10, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	dsvDescriptorHeap.Initialize(1, D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 	srvDescriptorHeap.Initialize(1024, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-	uavDescriptorHeap.Initialize(5, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 	// Descriptor range
 	srvDescriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -126,7 +124,6 @@ void ShutdownHelper()
 	srvDescriptorHeap.Shutdown();
 	dsvDescriptorHeap.Shutdown();
 	rtvDescriptorHeap.Shutdown();
-	uavDescriptorHeap.Shutdown();
 }
 
 const D3D12_DESCRIPTOR_RANGE1* SRVDescriptorRanges()
@@ -242,7 +239,7 @@ void CompileShaderFromFile(
 	else if (type == ShaderType::Library)
 	{
 		arguments[1] = L"";
-		arguments[3] = L"lib_6_0";
+		arguments[3] = L"lib_6_5";
 	}
 
 	Microsoft::WRL::ComPtr<IDxcResult> compileResult;
@@ -270,7 +267,7 @@ static const uint64_t MaxSubObjectDescSize = sizeof(D3D12_HIT_GROUP_DESC);
 void StateObjectBuilder::Init(uint64_t max)
 {
 	maxSubObjects = max;
-	subObjectData.resize(maxSubObjects, 0);
+	subObjectData.resize(maxSubObjects * MaxSubObjectDescSize, 0);
 
 	D3D12_STATE_SUBOBJECT defSubObj = {};
 	subObjects.resize(maxSubObjects, defSubObj);

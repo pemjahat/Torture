@@ -75,15 +75,21 @@ void DescriptorHeap::Free(uint32_t& index)
 
 void DescriptorHeap::Free(D3D12_CPU_DESCRIPTOR_HANDLE handle)
 {
-	uint32_t idx = IndexFromHandle(handle);
-	Free(idx);
+	if (handle.ptr != 0)
+	{
+		uint32_t idx = IndexFromHandle(handle);
+		Free(idx);
+	}
 }
 
 void DescriptorHeap::Free(D3D12_GPU_DESCRIPTOR_HANDLE handle)
 {
 	assert(shaderVisible);
-	uint32_t idx = IndexFromHandle(handle);
-	Free(idx);
+	if (handle.ptr != 0)
+	{
+		uint32_t idx = IndexFromHandle(handle);
+		Free(idx);
+	}
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::CPUHandleFromIndex(uint32_t descriptorIdx) const
@@ -142,11 +148,17 @@ void Buffer::Initialize(
 	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 	resourceDesc.Flags = allowUAV ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
 
+	D3D12_RESOURCE_STATES resourceState = initState;
+	if (cpuAccessible)
+		resourceState = D3D12_RESOURCE_STATE_GENERIC_READ;
+	else if (initData)
+		resourceState = D3D12_RESOURCE_STATE_COMMON;
+
 	CheckHRESULT(d3dDevice->CreateCommittedResource(
 		cpuAccessible ? &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD) : &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 		D3D12_HEAP_FLAG_NONE,
 		&resourceDesc,
-		cpuAccessible ? D3D12_RESOURCE_STATE_GENERIC_READ : D3D12_RESOURCE_STATE_COMMON,
+		resourceState,
 		nullptr,
 		IID_PPV_ARGS(&resource)));
 
@@ -159,7 +171,13 @@ void Buffer::Initialize(
 		D3D12_RANGE readRange = {};
 		resource->Map(0, &readRange, reinterpret_cast<void**>(&cpuAddress));
 	}
-	if (initData)
+
+	if (initData && cpuAccessible)
+	{
+		uint8_t* dstMem = cpuAddress;
+		memcpy(dstMem, initData, size);
+	}
+	else if (initData)
 	{
 		CheckHRESULT(d3dDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
@@ -369,7 +387,7 @@ void RawBuffer::Initialize(const RawBufferInit& init)
 	srvDesc.Buffer.NumElements = uint32_t(NumElements);
 	d3dDevice->CreateShaderResourceView(internalBuffer.resource.Get(), &srvDesc, srvAlloc.cpuHandle);
 
-	DescriptorAlloc uavAlloc = uavDescriptorHeap.Allocate();
+	DescriptorAlloc uavAlloc = srvDescriptorHeap.Allocate();
 	UAV = uavAlloc.cpuHandle;
 
 	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
@@ -385,7 +403,7 @@ void RawBuffer::Initialize(const RawBufferInit& init)
 void RawBuffer::Shutdown()
 {
 	srvDescriptorHeap.Free(SRV);
-	uavDescriptorHeap.Free(UAV);
+	srvDescriptorHeap.Free(UAV);
 	internalBuffer.Shutdown();
 }
 
@@ -542,7 +560,7 @@ void RenderTexture::Initialize(const RenderTextureInit& init)
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 		D3D12_HEAP_FLAG_NONE,
 		&textureDesc,
-		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+		init.initState,
 		&clearValue,
 		IID_PPV_ARGS(&texture.resource)));
 
@@ -558,7 +576,7 @@ void RenderTexture::Initialize(const RenderTextureInit& init)
 
 	if (init.allowUAV)
 	{
-		DescriptorAlloc uavAlloc = uavDescriptorHeap.Allocate();
+		DescriptorAlloc uavAlloc = srvDescriptorHeap.Allocate();
 		uav = uavAlloc.cpuHandle;
 		uavGpuAddress = uavAlloc.gpuHandle;
 
@@ -568,7 +586,7 @@ void RenderTexture::Initialize(const RenderTextureInit& init)
 
 void RenderTexture::Shutdown()
 {
-	uavDescriptorHeap.Free(uav);
+	srvDescriptorHeap.Free(uav);
 	rtvDescriptorHeap.Free(rtv);
 	texture.Shutdown();
 }

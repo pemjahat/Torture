@@ -117,6 +117,7 @@ private:
     RenderTexture rtBuffer;
     ComPtr<ID3D12RootSignature> rtRootSignature;
     ComPtr<ID3D12StateObject> rtPipelineState;
+    RawBuffer scratchBuffer;
     RawBuffer blas;
     RawBuffer tlas;
     StructuredBuffer rtRayGenTable;
