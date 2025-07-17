@@ -1,5 +1,6 @@
 #define HLSL
 #include "HLSLCompatible.h"
+#include "raytracingHelper.hlsli"
 
 RaytracingAccelerationStructure scene : register(t0);
 ByteAddressBuffer Indices : register(t1);
@@ -8,48 +9,21 @@ StructuredBuffer<Vertex> Vertices : register(t2);
 RWTexture2D<float4> renderTarget : register(u0);
 ConstantBuffer<SceneConstantBuffer> sceneCB : register(b0);
 ConstantBuffer<LightData> lightCB : register(b1);
+ConstantBuffer<PrimitiveConstantBuffer> matCB : register(b2);
 
 typedef BuiltInTriangleIntersectionAttributes MyAttributes;
-struct RayPayload
-{
-    float4 color;
-};
     
-void GenerateCameraRay(uint2 index, out float3 origin, out float3 direction)
-{
-    float2 xy = index + 0.5f;
-    float2 screenPos = xy / DispatchRaysDimensions().xy * 2.f - 1.f;
-        
-    // DX coordinate
-    screenPos.y = -screenPos.y;
-        
-    // unproject screen pos into ray
-    float4 world = mul(float4(screenPos, 0, 1), sceneCB.ProjToWorld);
-        
-    world.xyz /= world.w;
-    origin = sceneCB.CamPosition.xyz;
-    direction = normalize(world.xyz - origin);
-}
-
 [shader("raygeneration")]
 void MyRaygenShader()
 {
-    float3 rayDir;
-    float3 rayOrigin;
-    GenerateCameraRay(DispatchRaysIndex().xy, rayOrigin, rayDir);
+    Ray ray = GenerateCameraRay(DispatchRaysIndex().xy, sceneCB.CamPosition.xyz, sceneCB.ProjToWorld);
     
-    // Trace
-    RayDesc ray;
-    ray.Origin = rayOrigin;
-    ray.Direction = rayDir;
-        // set TMin to non-zero small value to avoid aliasing issue (float point)
-    ray.TMin = 0.001f;
-    ray.TMax = 10000.f;
-    RayPayload payload = { float4(0, 0, 0, 0) };
-    TraceRay(scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
-    
+    // cast ray into scene and retrieve shaded color
+    UINT currentRecursionDepth = 0;
+    float4 color = TraceRadianceRay(ray, currentRecursionDepth);
+        
     // Write into output
-    renderTarget[DispatchRaysIndex().xy] = payload.color;
+    renderTarget[DispatchRaysIndex().xy] = color;
 }
 
 // Retrieve hit world position
@@ -102,7 +76,7 @@ float3 HitAttribute(float3 vertexAtrribute[3], BuiltInTriangleIntersectionAttrib
 [shader("closesthit")]
 void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
 {
-    float3 hitPosition = HitWorldPosition();
+    
     
     // Get base index of triangle's first 16 bit index
     uint indexSizeInBytes = 2;
@@ -111,28 +85,62 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     uint baseIndex = PrimitiveIndex() * triangleIndexStride;
     
     const uint3 indices = LoadIndices(baseIndex);
+        
+        float3 triangleNormal = Vertices[indices[0]].normal;
     
-    // Retrieve vertex
-    float3 vertexNormals[3] =
-    {
-        Vertices[indices[0]].normal,
-        Vertices[indices[1]].normal,
-        Vertices[indices[2]].normal,
-    };
+        // Shadow
+        float3 hitPosition = HitWorldPosition();
+        Ray shadowRay = { hitPosition, normalize(-lightCB.direction) };
+        bool shadowRayHit = TraceShadowRay(shadowRay, payload.recursionDepth);
+
+        // Reflection
+        float4 reflectedColor = float4(0, 0, 0, 0);
+        if (matCB.reflectanceCoeff > 0.001)
+        {
+            Ray reflectionRay = { HitWorldPosition(), reflect(WorldRayDirection(), triangleNormal) };
+            float4 reflectionColor = TraceRadianceRay(reflectionRay, payload.recursionDepth);
+
+            float3 fresnelR = FresnelReflectionShlick(WorldRayDirection(), triangleNormal, matCB.albedo.xyz);
+            reflectedColor = matCB.reflectanceCoeff * float4(fresnelR, 1.f) * reflectionColor;
+        }
+        
+        // Final Color
+        float4 phongColor = CalculatePhongLighting(matCB.albedo, triangleNormal, shadowRayHit, matCB.diffuseCoeff, matCB.specularCoeff, matCB.specularPower);        
+        float4 color = phongColor + reflectedColor;
+
+        // Visibility falloff
+        float t = RayTCurrent();
+        color = lerp(color, BackgroundColor, (1.0 - exp(-0.000002 * t * t * t)));
+        
+        payload.color = color;
+    //// Retrieve vertex
+    //float3 vertexNormals[3] =
+    //{
+    //    Vertices[indices[0]].normal,
+    //    Vertices[indices[1]].normal,
+    //    Vertices[indices[2]].normal,
+    //};
     
-    float3 triangleNormal = HitAttribute(vertexNormals, attr);
+    //float3 triangleNormal = HitAttribute(vertexNormals, attr);
     
-    float3 lightDir = normalize(-lightCB.direction);
-    float NdotL = max(dot(triangleNormal, lightDir), 0.0);
+    //float3 lightDir = normalize(-lightCB.direction);
+    //float NdotL = max(dot(triangleNormal, lightDir), 0.0);
     
-    float3 lighting = lightCB.ambient.rgb + (float3(1.f, 0.f, 0.f) * lightCB.color.rgb * lightCB.intensity * NdotL);
+    //float3 lighting = lightCB.ambient.rgb + (float3(1.f, 0.f, 0.f) * lightCB.color.rgb * lightCB.intensity * NdotL);
     
-    // Compute triangle normal
-    payload.color = float4(lighting, 1.f);
+    //// Compute triangle normal
+    //payload.color = float4(lighting, 1.f);
 }
 
 [shader("miss")]
 void MyMissShader(inout RayPayload payload)
 {
-    payload.color = float4(0, 0.2, 0.4, 1.0);
+    float4 backgroundColor = float4(BackgroundColor);
+    payload.color = backgroundColor;
+}
+    
+[shader("miss")]
+void MyMissShader_Shadow(inout ShadowRayPayload payload)
+{
+    payload.hit = false;
 }

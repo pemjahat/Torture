@@ -114,6 +114,10 @@ private:
     StructuredBuffer rtVertexBuffer;
     RawBuffer rtIndexBuffer;
     RaygenConstantBuffer raygenCB;
+    ConstantBuffer matCB;
+    PrimitiveConstantBuffer planeCB;
+    StructuredBuffer planeVertexBuffer;
+    RawBuffer planeIndexBuffer;
 
     // Synchronization
     UINT m_frameIndex;
