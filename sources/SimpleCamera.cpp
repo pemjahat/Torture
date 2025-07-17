@@ -89,6 +89,11 @@ void SimpleCamera::Update(float elapsedSeconds)
 	XMStoreFloat3(&m_position, pos);
 }
 
+XMVECTOR SimpleCamera::GetPosition() const
+{
+	return XMLoadFloat3(&m_position);
+}
+
 XMMATRIX SimpleCamera::GetViewMatrix() const
 {
 	return XMMatrixLookToRH(XMLoadFloat3(&m_position), XMLoadFloat3(&m_lookDirection), XMLoadFloat3(&m_upDirection));

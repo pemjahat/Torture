@@ -5,7 +5,7 @@ typedef float2 XMFLOAT2;
 typedef float3 XMFLOAT3;
 typedef float4 XMFLOAT4;
 typedef float4 XMVECTOR;
-typedef float4x4 XMFLOAT4X4;
+typedef row_major float4x4 XMMATRIX;
 typedef uint UINT;
 #else
 using namespace DirectX;
@@ -13,10 +13,10 @@ using namespace DirectX;
 
 struct SceneConstantBuffer
 {
-    XMFLOAT4X4 World;
-    XMFLOAT4X4 WorldView;
-    XMFLOAT4X4 WorldViewProj;
-    XMVECTOR ProjToWorld;
+    XMMATRIX World;
+    XMMATRIX WorldView;
+    XMMATRIX WorldViewProj;
+    XMMATRIX ProjToWorld;
     XMVECTOR CamPosition;
     XMFLOAT2 InvTextureSize;
     XMFLOAT2 HiZDimension;
@@ -26,8 +26,8 @@ struct LightData
 {
     XMFLOAT3 direction;
     float intensity;
-    XMFLOAT3 color;
-    float padding;
+    XMVECTOR color;
+    XMVECTOR ambient;
 };
 
 struct Vertex

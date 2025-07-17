@@ -92,7 +92,8 @@ void RenderApplication::OnInit(SDL_Window* window)
     XMStoreFloat3(&m_directionalLight.direction, v);
 
     m_directionalLight.intensity = 1.f;
-    m_directionalLight.color = XMFLOAT3(1.f, 1.f, 1.f);
+    XMFLOAT4 lightDiffuseColor = XMFLOAT4(0.5f, 0.0f, 0.0f, 1.0f);
+    m_directionalLight.color = XMLoadFloat4(&lightDiffuseColor);
 
     LoadPipeline();
     LoadAsset(window);
@@ -124,7 +125,7 @@ void RenderApplication::CreateRT()
         raytraceLib,
         ShaderType::Library);
 
-    D3D12_ROOT_PARAMETER1 rootParameters[5] = {};
+    D3D12_ROOT_PARAMETER1 rootParameters[6] = {};
     // Acceleration structure
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -161,6 +162,12 @@ void RenderApplication::CreateRT()
     rootParameters[4].Descriptor.RegisterSpace = 0;
     rootParameters[4].Descriptor.ShaderRegister = 0;
     rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[5].Descriptor.RegisterSpace = 0;
+    rootParameters[5].Descriptor.ShaderRegister = 1;
+    rootParameters[5].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
 
     D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
     rootSignatureDesc.NumParameters = _countof(rootParameters);
@@ -888,9 +895,16 @@ void RenderApplication::OnUpdate()
     // DirectXMath library is row major matrices
     // Hlsl by default is column major matrices
     // Either use row_major explicitly on hlsl, or compile shader with ROW_MAJOR, or use XMMatrixTranspose
-    XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
+    /*XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
     XMStoreFloat4x4(&m_constantBufferData.WorldView, XMMatrixTranspose(world * view));
-    XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));
+    XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));*/
+
+    m_constantBufferData.World = world;
+    m_constantBufferData.WorldView = world * view;
+    m_constantBufferData.WorldViewProj = world * view * proj;
+    m_constantBufferData.ProjToWorld = XMMatrixInverse(nullptr, view * proj);
+
+    m_constantBufferData.CamPosition = m_camera.GetPosition();
     m_constantBufferData.InvTextureSize = XMFLOAT2(1.f / static_cast<float>(m_width), 1.f / static_cast<float>(m_height));
     m_constantBufferData.HiZDimension = XMFLOAT2(static_cast<float>(m_width), static_cast<float>(m_height));
 
@@ -900,6 +914,9 @@ void RenderApplication::OnUpdate()
     m_sceneCB.MapAndSetData(&m_constantBufferData, sizeof(SceneConstantBuffer));
 
     m_directionalLight.direction = PolarToCartesian(m_azimuth, m_elevation);
+
+    XMFLOAT4 lightAmbientColor = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
+    m_directionalLight.ambient = XMLoadFloat4(&lightAmbientColor);
 
     m_lightCB.MapAndSetData(&m_directionalLight, sizeof(LightData));
 }
@@ -1101,7 +1118,8 @@ void RenderApplication::RenderRaytracing()
     commandList->SetComputeRootShaderResourceView(1, rtIndexBuffer.internalBuffer.gpuAddress);
     commandList->SetComputeRootShaderResourceView(2, rtVertexBuffer.internalBuffer.gpuAddress);
     commandList->SetComputeRootDescriptorTable(3, rtBuffer.uavGpuAddress);
-    m_sceneCB.SetAsComputeRootParameter(commandList.Get(), 4);    
+    m_sceneCB.SetAsComputeRootParameter(commandList.Get(), 4);
+    m_lightCB.SetAsComputeRootParameter(commandList.Get(), 5);
 
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier = CD3DX12_RESOURCE_BARRIER::Transition(

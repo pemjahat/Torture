@@ -24,7 +24,7 @@ void GenerateCameraRay(uint2 index, out float3 origin, out float3 direction)
     screenPos.y = -screenPos.y;
         
     // unproject screen pos into ray
-    float4 world = mul(float4(screenPos, 0, 1) * sceneCB.ProjToWorld);
+    float4 world = mul(float4(screenPos, 0, 1), sceneCB.ProjToWorld);
         
     world.xyz /= world.w;
     origin = sceneCB.CamPosition.xyz;
@@ -34,8 +34,8 @@ void GenerateCameraRay(uint2 index, out float3 origin, out float3 direction)
 [shader("raygeneration")]
 void MyRaygenShader()
 {
-    float rayDir;
-    float rayOrigin;
+    float3 rayDir;
+    float3 rayOrigin;
     GenerateCameraRay(DispatchRaysIndex().xy, rayOrigin, rayDir);
     
     // Trace
@@ -125,7 +125,7 @@ void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     float3 lightDir = normalize(-lightCB.direction);
     float NdotL = max(dot(triangleNormal, lightDir), 0.0);
     
-    float3 lighting = float3(1.f, 0.f, 0.f) * lightCB.color * lightCB.intensity * NdotL;
+    float3 lighting = lightCB.ambient.rgb + (float3(1.f, 0.f, 0.f) * lightCB.color.rgb * lightCB.intensity * NdotL);
     
     // Compute triangle normal
     payload.color = float4(lighting, 1.f);

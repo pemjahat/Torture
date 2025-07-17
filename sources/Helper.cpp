@@ -220,7 +220,7 @@ void CompileShaderFromFile(
 	{
 		L"-E", L"VSMain",
 		L"-T", L"vs_6_0",
-		L"-Zi",
+		L"-Zi", L"-WX",
 		L"-I", includePath.c_str()
 	};
 
