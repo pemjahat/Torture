@@ -42,9 +42,9 @@ void SimpleCamera::Update(float elapsedSeconds)
 	XMFLOAT3 move(0, 0, 0);
 
 	if (m_keysPressed.a)
-		move.x -= 1.f;
-	if (m_keysPressed.d)
 		move.x += 1.f;
+	if (m_keysPressed.d)
+		move.x -= 1.f;
 	if (m_keysPressed.w)
 		move.z += 1.f;
 	if (m_keysPressed.s)
@@ -61,9 +61,9 @@ void SimpleCamera::Update(float elapsedSeconds)
 	float rotateInterval = m_turnSpeed * elapsedSeconds;
 
 	if (m_keysPressed.left)
-		m_yaw += rotateInterval;
-	if (m_keysPressed.right)
 		m_yaw -= rotateInterval;
+	if (m_keysPressed.right)
+		m_yaw += rotateInterval;
 	if (m_keysPressed.up)
 		m_pitch += rotateInterval;
 	if (m_keysPressed.down)
@@ -96,12 +96,12 @@ XMVECTOR SimpleCamera::GetPosition() const
 
 XMMATRIX SimpleCamera::GetViewMatrix() const
 {
-	return XMMatrixLookToRH(XMLoadFloat3(&m_position), XMLoadFloat3(&m_lookDirection), XMLoadFloat3(&m_upDirection));
+	return XMMatrixLookToLH(XMLoadFloat3(&m_position), XMLoadFloat3(&m_lookDirection), XMLoadFloat3(&m_upDirection));
 }
 
 XMMATRIX SimpleCamera::GetProjectionMatrix(float fov, float aspectRatio, float nearPlane, float farPlane) const
 {
-	return XMMatrixPerspectiveFovRH(fov, aspectRatio, nearPlane, farPlane);
+	return XMMatrixPerspectiveFovLH(fov, aspectRatio, nearPlane, farPlane);
 }
 
 BoundingFrustum SimpleCamera::GetFrustum(float fov, float aspectRatio, float nearPlane, float farPlane) const

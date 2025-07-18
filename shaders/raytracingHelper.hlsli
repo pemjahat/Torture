@@ -28,63 +28,51 @@
         return ray;
     }
     
-    float4 TraceRadianceRay(Ray ray, UINT currentRayRecursionDepth)
+    // Retrieve hit world position
+    float3 HitWorldPosition()
     {
-        if (currentRayRecursionDepth >= MAX_RECURSION_DEPTH)
-        {
-            return float4(0, 0, 0, 0);
-        }
-        
-        RayDesc rayDesc;
-        rayDesc.Origin = ray.origin;
-        rayDesc.Direction = ray.direction;
-        rayDesc.TMin = 0;
-        rayDesc.TMax = 10000;
-        
-        RayPayload rayPayload = { float4(0, 0, 0, 0), currentRayRecursionDepth + 1 };
-        TraceRay(
-            scene,
-            RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
-            TraceRayParameters::InstanceMask,
-            TraceRayParameters::HitGroup::Offset[RayType::Radiance],
-            TraceRayParameters::HitGroup::GeometryStride,
-            TraceRayParameters::MissShader::Offset[RayType::Radiance],
-            rayDesc,
-            rayPayload);
-
-        return rayPayload.color;
+        return WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
     }
     
-    bool TraceShadowRay(Ray ray, UINT currentRayRecursionDepth)
+    // Retrieve attribute of hit position interpolated from vertex attribute using hit barrycentric
+    float3 HitAttribute(float3 vertexAtrribute[3], BuiltInTriangleIntersectionAttributes attr)
     {
-        if (currentRayRecursionDepth >= MAX_RECURSION_DEPTH)
-        {
-            return false;
-        }
-        
-        RayDesc rayDesc;
-        rayDesc.Origin = ray.origin;
-        rayDesc.Direction = ray.direction;
-        rayDesc.TMin = 0;
-        rayDesc.TMax = 10000;
-        
-        // Init value is true since closest hit + any hit is skipped
-        // Only if miss called, will set to false
-        ShadowRayPayload shadowPayload = { true };
-        TraceRay(
-            scene,
-            RAY_FLAG_CULL_BACK_FACING_TRIANGLES | 
-            RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | 
-            RAY_FLAG_FORCE_OPAQUE |             // Skip any hit shader
-            RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,   // Skip closest hit shader
-            TraceRayParameters::InstanceMask,
-            TraceRayParameters::HitGroup::Offset[RayType::Shadow],
-            TraceRayParameters::HitGroup::GeometryStride,
-            TraceRayParameters::MissShader::Offset[RayType::Shadow],
-            rayDesc,
-            shadowPayload);
+        return vertexAtrribute[0] +
+            attr.barycentrics.x * (vertexAtrribute[1] - vertexAtrribute[0]) +
+            attr.barycentrics.y * (vertexAtrribute[2] - vertexAtrribute[0]);
+    }
 
-        return shadowPayload.hit;
+    // Retrieve 3 indices (16 bits) from byte address buffer
+    uint3 LoadIndices(uint offsetBytes, ByteAddressBuffer Indices)
+    {
+        uint3 indices;
+    
+        // ByteAdressBuffer loads must be aligned at a 4 byte boundary.
+        // Since we need to read three 16 bit indices: { 0, 1, 2 } 
+        // aligned at a 4 byte boundary as: { 0 1 } { 2 0 } { 1 2 } { 0 1 } ...
+        // we will load 8 bytes (~ 4 indices { a b | c d }) to handle two possible index triplet layouts,
+        // based on first index's offsetBytes being aligned at the 4 byte boundary or not:
+        //  Aligned:     { 0 1 | 2 - }
+        //  Not aligned: { - 0 | 1 2 }
+    
+        const uint dwordAlignedOffset = offsetBytes & ~3;
+        const uint2 four16BitIndices = Indices.Load2(dwordAlignedOffset);
+    
+        // Aligned: { 0 1 | 2 - } => retrieve first three 16bit indices
+        if (dwordAlignedOffset == offsetBytes)
+        {
+            indices.x = four16BitIndices.x & 0xffff;
+            indices.y = (four16BitIndices.x >> 16) & 0xffff;
+            indices.z = four16BitIndices.y & 0xffff;
+        }
+        else // Not aligned: { - 0 | 1 2 } => retrieve last three 16bit indices
+        {
+            indices.x = (four16BitIndices.x >> 16) & 0xffff;
+            indices.y = four16BitIndices.y & 0xffff;
+            indices.z = (four16BitIndices.y >> 16) & 0xffff;
+        }
+    
+        return indices;
     }
     
     float3 FresnelReflectionShlick(in float3 I, in float3 N, in float3 f0)
@@ -106,30 +94,4 @@
     {
         float3 reflectedLightRay = normalize(reflect(incidentLightRay, normal));
         return pow(saturate(dot(reflectedLightRay, normalize(-WorldRayDirection()))), specularPower);
-    }
-    
-    float4 CalculatePhongLighting(float4 albedo, float3 normal, bool isInShadow, float diffuseCoeff = 1.f, float specularCoeff = 1.f, float specularPower = 50.f)
-    {
-        float3 hitPosition = HitWorldPosition();
-        float shadowFactor = isInShadow ? InShadowRadiance : 1.0f;
-        float3 incidentLightRay = normalize(-lightCB.direction);
-        
-        // Diffuse
-        float4 lightDiffuseColor = lightCB.color;
-        float Kd = CalculateDiffuseCoefficient(incidentLightRay, normal);
-        float4 diffuseColor = shadowFactor * diffuseCoeff * Kd * lightDiffuseColor * albedo;
-        
-        // Specular
-        float4 specularColor = float4(0, 0, 0, 0);
-        if (!isInShadow)
-        {
-            float4 lightSpecularColor = float4(1, 1, 1, 1);
-            float4 Ks = CalculateSpecularCoefficient(hitPosition, incidentLightRay, normal, specularPower);
-            float4 specularColor = specularCoeff * Ks * lightSpecularColor;
-        }
-        
-        // Ambient
-        float4 ambientColor = lightCB.ambient * albedo;
-        
-        return ambientColor + diffuseColor + specularColor;
     }

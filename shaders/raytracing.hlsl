@@ -12,7 +12,93 @@ ConstantBuffer<LightData> lightCB : register(b1);
 ConstantBuffer<PrimitiveConstantBuffer> matCB : register(b2);
 
 typedef BuiltInTriangleIntersectionAttributes MyAttributes;
+
+// HitGroupIdx = RayContribToHitGroupIndex + GeomIndex * MultiplerGeomContribToHitGroupIndex
+float4 TraceRadianceRay(Ray ray, UINT currentRayRecursionDepth)
+{
+    if (currentRayRecursionDepth >= MAX_RECURSION_DEPTH)
+    {
+        return float4(0, 0, 0, 0);
+    }
+        
+    RayDesc rayDesc;
+    rayDesc.Origin = ray.origin;
+    rayDesc.Direction = ray.direction;
+    rayDesc.TMin = 0;
+    rayDesc.TMax = 10000;
+        
+    RayPayload rayPayload = { float4(0, 0, 0, 0), currentRayRecursionDepth + 1 };
+    TraceRay(
+        scene,
+        RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+        TraceRayParameters::InstanceMask,
+        TraceRayParameters::HitGroup::Offset[RayType::Radiance],
+        0,
+        TraceRayParameters::MissShader::Offset[RayType::Radiance],
+        rayDesc,
+        rayPayload);
+
+    return rayPayload.color;
+}
     
+bool TraceShadowRay(Ray ray, UINT currentRayRecursionDepth)
+{
+    if (currentRayRecursionDepth >= MAX_RECURSION_DEPTH)
+    {
+        return false;
+    }
+        
+    RayDesc rayDesc;
+    rayDesc.Origin = ray.origin + ray.direction * 0.1f;
+    rayDesc.Direction = ray.direction;
+    rayDesc.TMin = 0;
+    rayDesc.TMax = 10000;
+        
+    // Init value is true since closest hit + any hit is skipped
+    // Only if miss called, will set to false
+    ShadowRayPayload shadowPayload = { true };
+    TraceRay(
+        scene,
+        RAY_FLAG_CULL_BACK_FACING_TRIANGLES |
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
+        RAY_FLAG_FORCE_OPAQUE |
+        RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, // Skip closest hit shader
+        TraceRayParameters::InstanceMask,
+        TraceRayParameters::HitGroup::Offset[RayType::Shadow],
+        0,
+        TraceRayParameters::MissShader::Offset[RayType::Shadow],
+        rayDesc,
+        shadowPayload);
+
+    return shadowPayload.hit;
+}
+    
+float4 CalculatePhongLighting(float4 albedo, float3 normal, bool isInShadow, float diffuseCoeff = 1.f, float specularCoeff = 1.f, float specularPower = 50.f)
+{
+    float3 hitPosition = HitWorldPosition();
+    float shadowFactor = isInShadow ? InShadowRadiance : 1.0f;
+    float3 incidentLightRay = normalize(-lightCB.direction);
+        
+    // Diffuse
+    float4 lightDiffuseColor = lightCB.color;
+    float Kd = CalculateDiffuseCoefficient(incidentLightRay, normal);
+    float4 diffuseColor = shadowFactor * diffuseCoeff * Kd * lightDiffuseColor * albedo;
+        
+    // Specular
+    float4 specularColor = float4(0, 0, 0, 0);
+    if (!isInShadow)
+    {
+        float4 lightSpecularColor = float4(1, 1, 1, 1);
+        float4 Ks = CalculateSpecularCoefficient(hitPosition, incidentLightRay, normal, specularPower);
+        float4 specularColor = specularCoeff * Ks * lightSpecularColor;
+    }
+        
+    // Ambient
+    float4 ambientColor = lightCB.ambient * albedo;
+        
+    return ambientColor + diffuseColor + specularColor;
+}
+
 [shader("raygeneration")]
 void MyRaygenShader()
 {
@@ -26,110 +112,44 @@ void MyRaygenShader()
     renderTarget[DispatchRaysIndex().xy] = color;
 }
 
-// Retrieve hit world position
-float3 HitWorldPosition()
-{
-    return WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
-}
-
-// Retrieve 3 indices (16 bits) from byte address buffer
-uint3 LoadIndices(uint offsetBytes)
-{
-    uint3 indices;
-    
-    // ByteAdressBuffer loads must be aligned at a 4 byte boundary.
-    // Since we need to read three 16 bit indices: { 0, 1, 2 } 
-    // aligned at a 4 byte boundary as: { 0 1 } { 2 0 } { 1 2 } { 0 1 } ...
-    // we will load 8 bytes (~ 4 indices { a b | c d }) to handle two possible index triplet layouts,
-    // based on first index's offsetBytes being aligned at the 4 byte boundary or not:
-    //  Aligned:     { 0 1 | 2 - }
-    //  Not aligned: { - 0 | 1 2 }
-    
-    const uint dwordAlignedOffset = offsetBytes & ~3;
-    const uint2 four16BitIndices = Indices.Load2(dwordAlignedOffset);
-    
-    // Aligned: { 0 1 | 2 - } => retrieve first three 16bit indices
-    if (dwordAlignedOffset == offsetBytes)
-    {
-        indices.x = four16BitIndices.x & 0xffff;
-        indices.y = (four16BitIndices.x >> 16) & 0xffff;
-        indices.z = four16BitIndices.y & 0xffff;
-    }
-    else // Not aligned: { - 0 | 1 2 } => retrieve last three 16bit indices
-    {
-        indices.x = (four16BitIndices.x >> 16) & 0xffff;
-        indices.y = four16BitIndices.y & 0xffff;
-        indices.z = (four16BitIndices.y >> 16) & 0xffff;
-    }
-    
-    return indices;
-}
-
-// Retrieve attribute of hit position interpolated from vertex attribute using hit barrycentric
-float3 HitAttribute(float3 vertexAtrribute[3], BuiltInTriangleIntersectionAttributes attr)
-{
-    return vertexAtrribute[0] +
-        attr.barycentrics.x * (vertexAtrribute[1] - vertexAtrribute[0]) +
-        attr.barycentrics.y * (vertexAtrribute[2] - vertexAtrribute[0]);
-}
-
 [shader("closesthit")]
 void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
 {
-    
-    
     // Get base index of triangle's first 16 bit index
     uint indexSizeInBytes = 2;
     uint indicesPerTriangle = 3;
     uint triangleIndexStride = indicesPerTriangle * indexSizeInBytes;
     uint baseIndex = PrimitiveIndex() * triangleIndexStride;
     
-    const uint3 indices = LoadIndices(baseIndex);
+    const uint3 indices = LoadIndices(baseIndex, Indices);
         
-        float3 triangleNormal = Vertices[indices[0]].normal;
+    float3 triangleNormal = Vertices[indices[0]].normal;
     
-        // Shadow
-        float3 hitPosition = HitWorldPosition();
-        Ray shadowRay = { hitPosition, normalize(-lightCB.direction) };
-        bool shadowRayHit = TraceShadowRay(shadowRay, payload.recursionDepth);
+    // Shadow
+    float3 hitPosition = HitWorldPosition();
+    Ray shadowRay = { hitPosition, normalize(-lightCB.direction) };
+    bool shadowRayHit = TraceShadowRay(shadowRay, payload.recursionDepth);
+     
+    // Reflection
+    float4 reflectedColor = float4(0, 0, 0, 0);
+    if (matCB.reflectanceCoeff > 0.001 && GeometryIndex() == 0)
+    {
+        Ray reflectionRay = { HitWorldPosition(), reflect(WorldRayDirection(), triangleNormal) };
+        float4 reflectionColor = TraceRadianceRay(reflectionRay, payload.recursionDepth);
 
-        // Reflection
-        float4 reflectedColor = float4(0, 0, 0, 0);
-        if (matCB.reflectanceCoeff > 0.001)
-        {
-            Ray reflectionRay = { HitWorldPosition(), reflect(WorldRayDirection(), triangleNormal) };
-            float4 reflectionColor = TraceRadianceRay(reflectionRay, payload.recursionDepth);
-
-            float3 fresnelR = FresnelReflectionShlick(WorldRayDirection(), triangleNormal, matCB.albedo.xyz);
-            reflectedColor = matCB.reflectanceCoeff * float4(fresnelR, 1.f) * reflectionColor;
-        }
+        float3 fresnelR = FresnelReflectionShlick(WorldRayDirection(), triangleNormal, matCB.albedo.xyz);
+        reflectedColor = matCB.reflectanceCoeff * float4(fresnelR, 1.f) * reflectionColor;
+    }
         
-        // Final Color
-        float4 phongColor = CalculatePhongLighting(matCB.albedo, triangleNormal, shadowRayHit, matCB.diffuseCoeff, matCB.specularCoeff, matCB.specularPower);        
-        float4 color = phongColor + reflectedColor;
+    // Final Color
+    float4 phongColor = CalculatePhongLighting(matCB.albedo, triangleNormal, shadowRayHit, matCB.diffuseCoeff, matCB.specularCoeff, matCB.specularPower);        
+    float4 color = phongColor + reflectedColor;
 
-        // Visibility falloff
-        float t = RayTCurrent();
-        color = lerp(color, BackgroundColor, (1.0 - exp(-0.000002 * t * t * t)));
+    // Visibility falloff
+    float t = RayTCurrent();
+    color = lerp(color, BackgroundColor, (1.0 - exp(-0.000002 * t * t * t)));
         
-        payload.color = color;
-    //// Retrieve vertex
-    //float3 vertexNormals[3] =
-    //{
-    //    Vertices[indices[0]].normal,
-    //    Vertices[indices[1]].normal,
-    //    Vertices[indices[2]].normal,
-    //};
-    
-    //float3 triangleNormal = HitAttribute(vertexNormals, attr);
-    
-    //float3 lightDir = normalize(-lightCB.direction);
-    //float NdotL = max(dot(triangleNormal, lightDir), 0.0);
-    
-    //float3 lighting = lightCB.ambient.rgb + (float3(1.f, 0.f, 0.f) * lightCB.color.rgb * lightCB.intensity * NdotL);
-    
-    //// Compute triangle normal
-    //payload.color = float4(lighting, 1.f);
+    payload.color = color;
 }
 
 [shader("miss")]

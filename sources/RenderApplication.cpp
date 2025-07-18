@@ -82,7 +82,7 @@ RenderApplication::RenderApplication(int argc, char** argv) :
 
 void RenderApplication::OnInit(SDL_Window* window)
 {
-    m_camera.Init({ 0, 0.f, 10 });
+    m_camera.Init({ 0.0f, 5.3f, -10.0f});
     m_camera.SetMoveSpeed(m_moveSpeed);
 
     // Light
@@ -218,7 +218,7 @@ void RenderApplication::CreateRTPipelineStateObject()
     {
         // Closest hit (Shadow)
         D3D12_HIT_GROUP_DESC hitDesc = {};
-        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;        
         hitDesc.HitGroupExport = L"MyHitGroup_Shadow";
         builder.AddSubObject(hitDesc);
     }
@@ -303,16 +303,32 @@ void RenderApplication::CreateRTGeometryTest()
         {
             3,1,0,
             2,1,3,
+
         };
 
         // Cube vertices positions and corresponding triangle normals.
         Vertex vertices[] =
         {
-            { XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(700.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(700.0f, 0.0f, 700.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(0.0f, 0.0f, 700.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+            { XMFLOAT3(-10.0f, 0.0f, -10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+            { XMFLOAT3(10.0f, 0.0f, -10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+            { XMFLOAT3(10.0f, 0.0f, 10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+            { XMFLOAT3(-10.0f, 0.0f, 10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
         };
+
+        //Index indices[] =
+        //{
+        //    0, 2, 1,
+        //    3, 1, 2,
+        //};
+
+        //// Cube vertices positions and corresponding triangle normals.
+        //Vertex vertices[] =
+        //{
+        //    { XMFLOAT3(-10.0f, 0.0f, -10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) }, // Bottom left
+        //    { XMFLOAT3(10.0f, 0.0f, -10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },  // Bottom right
+        //    { XMFLOAT3(-10.0f, 0.0f, 10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },  // Top left
+        //    { XMFLOAT3(10.0f, 0.0f, 10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },   // Top right
+        //};
 
         // Create vertex buffer
         StructuredBufferInit sbi;
@@ -360,36 +376,100 @@ void RenderApplication::CreateRTGeometryTest()
         // Cube vertices positions and corresponding triangle normals.
         Vertex vertices[] =
         {
-            { XMFLOAT3(-1.0f, .5f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(1.0f, .5f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(1.0f, .5f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, .5f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+            // Top
+            { XMFLOAT3(-1.0f, 3.0f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+            { XMFLOAT3(1.0f, 3.0f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+            { XMFLOAT3(1.0f, 3.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+            { XMFLOAT3(-1.0f, 3.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
+            // Bottom
+            { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
+            { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
+            { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
+            { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
 
-            { XMFLOAT3(-1.0f, -.5f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
-            { XMFLOAT3(1.0f, -.5f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
-            { XMFLOAT3(1.0f, -.5f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, -.5f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
+            { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+            { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+            { XMFLOAT3(-1.0f, 3.0f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+            { XMFLOAT3(-1.0f, 3.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
 
-            { XMFLOAT3(-1.0f, -.5f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, -.5f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, .5f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, .5f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
+            { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+            { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+            { XMFLOAT3(1.0f, 3.0f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+            { XMFLOAT3(1.0f, 3.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
 
-            { XMFLOAT3(1.0f, -.5f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(1.0f, -.5f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(1.0f, .5f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(1.0f, .5f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
+            { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
+            { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
+            { XMFLOAT3(1.0f, 3.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
+            { XMFLOAT3(-1.0f, 3.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
 
-            { XMFLOAT3(-1.0f, -.5f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
-            { XMFLOAT3(1.0f, -.5f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
-            { XMFLOAT3(1.0f, .5f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
-            { XMFLOAT3(-1.0f, .5f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
-
-            { XMFLOAT3(-1.0f, -.5f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
-            { XMFLOAT3(1.0f, -.5f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
-            { XMFLOAT3(1.0f, .5f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
-            { XMFLOAT3(-1.0f, .5f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+            { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+            { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+            { XMFLOAT3(1.0f, 3.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
+            { XMFLOAT3(-1.0f, 3.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
         };
+
+        //// Cube indices.
+        //Index indices[] =
+        //{
+        //    // Front face
+        //    0, 2, 1,
+        //    3, 1, 2,
+        //    // Back face
+        //    5, 6, 4,
+        //    7, 6, 5,
+        //    // Left face
+        //    8, 10, 9,
+        //    10, 11, 9,
+        //    // Right face
+        //    12, 14, 13,
+        //    15, 14, 12,
+        //    // Top Face
+        //    16, 17, 19,
+        //    19, 18, 16,
+        //    // Bottom face
+        //    20, 21, 23,
+        //    21, 20, 23
+        //};
+
+        //// Cube vertices positions and corresponding triangle normals.
+        //Vertex vertices[] =
+        //{
+        //    // Front face
+        //    { XMFLOAT3(-1.0f, 0.f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) }, // Bottom left
+        //    { XMFLOAT3(1.0f, 0.f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },  // Bottom right
+        //    { XMFLOAT3(-1.0f, 2.f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) }, // Top left
+        //    { XMFLOAT3(1.0f, 2.f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },  // Top right
+
+        //    // Back face
+        //    { XMFLOAT3(1.0f, 0.f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },    // Bottom right
+        //    { XMFLOAT3(-1.0f, 0.f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },   // Bottom left
+        //    { XMFLOAT3(1.0f, 2.f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },    // top right
+        //    { XMFLOAT3(-1.0f, 2.f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },   // top left
+
+        //    // Left face
+        //    { XMFLOAT3(-1.0f, 0.f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },   // Bottom back
+        //    { XMFLOAT3(-1.0f, 0.f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },  // Bottom front
+        //    { XMFLOAT3(-1.0f, 2.f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },   // Top back
+        //    { XMFLOAT3(-1.0f, 2.f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },    // Top front
+
+        //    // Right face
+        //    { XMFLOAT3(1.0f, 0.f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },     // Bottom front
+        //    { XMFLOAT3(1.0f, 0.f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },    // Bottom back
+        //    { XMFLOAT3(1.0f, 2.f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },     // Top front
+        //    { XMFLOAT3(1.0f, 2.f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },    // Top back
+
+        //    // Top face
+        //    { XMFLOAT3(-1.0f, 2.f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) }, // Back left
+        //    { XMFLOAT3(1.0f, 2.f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) }, // Back right
+        //    { XMFLOAT3(-1.0f, 2.f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },  // Front left
+        //    { XMFLOAT3(1.0f, 2.f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) }, // Front right
+
+        //    // Bottom face
+        //    { XMFLOAT3(-1.0f, 0.f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },  // Front left
+        //    { XMFLOAT3(1.0f, 0.f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },   // Front right
+        //    { XMFLOAT3(-1.0f, 0.f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },    // Back left
+        //    { XMFLOAT3(1.0f, 0.f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },   // Back right
+        //};
 
         // Create vertex buffer
         StructuredBufferInit sbi;
@@ -1413,6 +1493,8 @@ void RenderApplication::PopulateCommandList()
 
     // ImGui
     {
+        commandList->OMSetRenderTargets(1, &backBuffer[m_frameIndex].rtv, false, nullptr);
+
         ID3D12DescriptorHeap* ppDescHeaps[] = { m_imguiDescHeap.Get() };
         commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());

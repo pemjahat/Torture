@@ -36,7 +36,7 @@ struct LightData
 struct PrimitiveConstantBuffer
 {
     XMFLOAT4 albedo;
-    float reflectionCoeff;
+    float reflectanceCoeff;
     float diffuseCoeff;
     float specularCoeff;
     float specularPower;
@@ -78,7 +78,6 @@ namespace TraceRayParameters
             0,  // Radiance
             1  // Shadow
         };
-        static const UINT GeometryStride = RayType::Count;
     }
     namespace MissShader
     {
