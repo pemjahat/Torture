@@ -10,10 +10,10 @@ struct ModelConstants
 struct MeshData
 {
     float3 centerBound;
-    float padBound1;
+    uint vertexOffset;
     
     float3 extentsBound;
-    float padBound2;
+    uint indexOffset;
     
     float4x4 meshTransform; //Per-mesh transform
 };
