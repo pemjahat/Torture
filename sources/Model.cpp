@@ -32,14 +32,8 @@ void Model::Shutdown()
     m_rootSignature = nullptr;
     m_depthRootSignature = nullptr;
 
-    for (size_t i = 0; i < m_model.meshes.size(); ++i)
-    {
-        //auto& mesh = m_model.meshes[i];
-        auto& resource = m_meshResources[i];
-
-        resource.vertexBuffer.Shutdown();
-        resource.indexBuffer.Shutdown();
-    }
+    meshResource.vertexBuffer.Shutdown();
+    meshResource.indexBuffer.Shutdown();
 }
 
 //
@@ -686,35 +680,58 @@ HRESULT Model::UploadGpuResources()
         return E_FAIL;
     }
 
-    m_meshResources.resize(m_model.meshes.size());
+    uint64_t numVertices = 0;
+    uint64_t numIndices = 0;
 
     for (size_t i = 0; i < m_model.meshes.size(); ++i)
     {
         auto& mesh = m_model.meshes[i];
-        auto& resource = m_meshResources[i];
 
-        // Create vertex buffer
-        StructuredBufferInit sbi;
-        sbi.stride = sizeof(VertexData);
-        sbi.numElements = mesh.vertices.size();
-        sbi.initData = mesh.vertices.data();
-        sbi.initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-        sbi.name = L"ModelVertexBuffer";
-
-        resource.vertexBuffer.Initialize(sbi);
-        
-        // Create index buffer
-        FormattedBufferInit fbi;
-        fbi.format = DXGI_FORMAT_R32_UINT;
-        fbi.bitSize = 32;
-        fbi.numElements = mesh.indices.size();
-        fbi.initData = mesh.indices.data();
-        fbi.initState = D3D12_RESOURCE_STATE_INDEX_BUFFER;
-        fbi.name = L"ModelIndexBuffer";
-
-        resource.indexBuffer.Initialize(fbi);
+        numVertices += mesh.vertices.size();
+        numIndices += mesh.indices.size();
     }
-    
+
+    // Create mesh resources
+    meshResource.vertices.resize(numVertices);
+    meshResource.indices.resize(numIndices);
+    uint64_t vtxOffset = 0;
+    uint64_t idxOffset = 0;
+    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    {
+        auto& mesh = m_model.meshes[i];
+
+        // Copy vertex data (byte offset)
+        memcpy(meshResource.vertices.data() + vtxOffset, mesh.vertices.data(), mesh.vertices.size() * sizeof(VertexData));
+
+        // Copy index data (byte offset)
+        memcpy(meshResource.indices.data() + idxOffset, mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
+
+        // Copy the offset
+        mesh.vertexOffset = vtxOffset;
+        mesh.indexOffset = idxOffset;
+
+        // Advance it
+        vtxOffset += mesh.vertices.size();
+        idxOffset += mesh.indices.size();
+    }
+
+    StructuredBufferInit sbi;
+    sbi.stride = sizeof(VertexData);
+    sbi.numElements = numVertices;
+    sbi.initData = meshResource.vertices.data();
+    sbi.initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+    sbi.name = L"ModelVertexBuffer";
+    meshResource.vertexBuffer.Initialize(sbi);
+
+    FormattedBufferInit fbi;
+    fbi.format = DXGI_FORMAT_R32_UINT;
+    fbi.bitSize = 32;
+    fbi.numElements = numIndices;
+    fbi.initData = meshResource.indices.data();
+    fbi.initState = D3D12_RESOURCE_STATE_INDEX_BUFFER;
+    fbi.name = L"ModelIndexBuffer";
+    meshResource.indexBuffer.Initialize(fbi);
+
     // Create texture
     if (!m_model.images.empty())
     {
@@ -755,6 +772,8 @@ HRESULT Model::UploadGpuResources()
 
             meshSB.centerBound = worldBox.Center;
             meshSB.extentsBound = worldBox.Extents;
+            meshSB.vertexOffset = mesh.vertexOffset;
+            meshSB.indexOffset = mesh.indexOffset;
             meshes.push_back(std::move(meshSB));
         }
 
@@ -851,10 +870,13 @@ HRESULT Model::RenderDepthOnly(
     sceneCB->SetAsGfxRootParameter(commandList.Get(), 0);
     m_meshSB.SetAsGfxRootParameter(commandList.Get(), 2);
 
+    commandList->IASetVertexBuffers(0, 1, &meshResource.vertexBuffer.VBView());
+    commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
     for (size_t i = 0; i < m_model.meshes.size(); ++i)
     {
         const auto& mesh = m_model.meshes[i];
-        const auto& resource = m_meshResources[i];
 
         XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
 
@@ -872,10 +894,7 @@ HRESULT Model::RenderDepthOnly(
         commandList->SetGraphicsRoot32BitConstants(1, 2, &constant, 0);
 
         // Set vertex and index buffers
-        commandList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
-        commandList->IASetIndexBuffer(&resource.indexBuffer.IBView());
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, mesh.indexOffset, mesh.vertexOffset, 0);
     }
 
     return S_OK;
@@ -960,12 +979,15 @@ void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::Bounding
     sceneCB->SetAsGfxRootParameter(commandList.Get(), 1);
     m_meshSB.SetAsGfxRootParameter(commandList.Get(), 3);
 
+    commandList->IASetVertexBuffers(0, 1, &meshResource.vertexBuffer.VBView());
+    commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
     ComPtr<ID3D12PipelineState> currPSO = gbufferPipelineState;
 
     for (size_t i = 0; i < m_model.meshes.size(); ++i)
     {
         const auto& mesh = m_model.meshes[i];
-        const auto& resource = m_meshResources[i];
 
         XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
 
@@ -993,9 +1015,6 @@ void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::Bounding
             currPSO = newPSO;
         }
         // Set vertex and index buffers
-        commandList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
-        commandList->IASetIndexBuffer(&resource.indexBuffer.IBView());
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, mesh.indexOffset, mesh.vertexOffset, 0);
     }
 }

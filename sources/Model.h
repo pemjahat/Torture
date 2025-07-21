@@ -60,6 +60,8 @@ struct MeshData
 	std::vector<VertexData> vertices;
 	std::vector<uint32_t> indices;
 	int materialIndex = -1;
+	uint64_t vertexOffset = 0;
+	uint64_t indexOffset = 0;
 	DirectX::XMFLOAT4X4 transform;	// Node hierarchy transform
 	DirectX::BoundingBox boundingBox;
 };
@@ -93,10 +95,10 @@ struct MaterialStructuredBuffer
 struct MeshStructuredBuffer
 {
 	DirectX::XMFLOAT3 centerBound;
-	float padBound1;
+	UINT vertexOffset;
 	
 	DirectX::XMFLOAT3 extentsBound;
-	float padBound2;
+	UINT indexOffset;
 
 	DirectX::XMFLOAT4X4 meshTransform;
 };
@@ -112,6 +114,9 @@ struct MeshResources
 {
 	StructuredBuffer vertexBuffer;
 	FormattedBuffer indexBuffer;
+	
+	std::vector<VertexData> vertices;
+	std::vector<uint32_t> indices;
 };
 
 class Model
@@ -146,7 +151,7 @@ private:
 	// 
 	ModelData m_model;
 
-	std::vector<MeshResources> m_meshResources;
+	MeshResources meshResource;
 
 	StructuredBuffer m_meshSB;
 	StructuredBuffer m_materialSB;
