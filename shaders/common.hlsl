@@ -49,7 +49,7 @@ struct MaterialData
     int albedoTextureIndex;
     int metallicTextureIndex;
     int normalTextureIndex;
-    float paddedMat;
+    float alphaCutoff;
     
     float4 baseColorFactor;
 };

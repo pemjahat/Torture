@@ -59,7 +59,7 @@ void SrvSetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootP
 void SrvSetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter);
 
 void CreateRootSignature(Microsoft::WRL::ComPtr<ID3D12RootSignature>& rootSignature, const D3D12_ROOT_SIGNATURE_DESC1& desc);
-void CompileShaderFromFile(const std::wstring& filePath, const std::wstring& includePath, Microsoft::WRL::ComPtr<IDxcBlob>& shaderBlob, ShaderType type);
+void CompileShaderFromFile(const std::wstring& filePath, const std::wstring& includePath, const std::wstring& functionName, Microsoft::WRL::ComPtr<IDxcBlob>& shaderBlob, ShaderType type);
 
 struct DescriptorHeapAllocator
 {

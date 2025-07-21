@@ -241,6 +241,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         CompileShaderFromFile(
             std::filesystem::absolute(fullscreenShader).wstring(),
             std::filesystem::absolute(shaderPath).wstring(),
+            L"VSMain",
             fullscreenVS,
             ShaderType::Vertex);
 
@@ -248,6 +249,7 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         CompileShaderFromFile(
             std::filesystem::absolute(deferredShader).wstring(),
             std::filesystem::absolute(shaderPath).wstring(),
+            L"PSMain",
             deferredPS,
             ShaderType::Pixel);
 
