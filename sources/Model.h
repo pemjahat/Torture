@@ -38,6 +38,7 @@ struct MaterialData
 	DirectX::XMFLOAT4 baseColorFactor = DirectX::XMFLOAT4(1.f, 1.f, 1.f, 1.f);
 	float metallicFactor = 0.f;
 	float roughnessFactor = 1.f;
+	float alphaCutoff = 0.f;
 	int albedoTextureIndex = -1;
 	int metallicRoughnessTextureIndex = -1;
 	int normalTextureIndex = -1;
@@ -84,7 +85,7 @@ struct MaterialStructuredBuffer
 	int albedoTextureIndex = 0;
 	int metallicTextureIndex = 0;
 	int normalTextureIndex = 0;
-	float paddedMat;
+	float alphaCutoff;
 
 	DirectX::XMFLOAT4 baseColorFactor;
 };
@@ -152,17 +153,17 @@ private:
 	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;
 
 	ComPtr<IDxcBlob> m_vertexShader;
-	ComPtr<IDxcBlob> m_pixelShader;
 	ComPtr<IDxcBlob> m_depthVertexShader;
 	ComPtr<IDxcBlob> gbufferVS;
 	ComPtr<IDxcBlob> gbufferPS;
+	ComPtr<IDxcBlob> alphaTestPS;
 
 	ComPtr<ID3D12RootSignature> m_rootSignature;
 	ComPtr<ID3D12RootSignature> m_depthRootSignature;
-	ComPtr<ID3D12RootSignature> gbufferRootSignature;
-	ComPtr<ID3D12PipelineState> m_pipelineState;
+	ComPtr<ID3D12RootSignature> gbufferRootSignature;	
 	ComPtr<ID3D12PipelineState> m_depthPipelineState;
 	ComPtr<ID3D12PipelineState> gbufferPipelineState;
+	ComPtr<ID3D12PipelineState> alphaTestPipelineState;
 };
 
 

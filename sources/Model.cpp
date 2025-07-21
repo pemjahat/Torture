@@ -26,8 +26,8 @@ void Model::Initialize()
 
 void Model::Shutdown()
 {
-    m_pipelineState = nullptr;
     m_depthPipelineState = nullptr;
+    alphaTestPipelineState = nullptr;
 
     m_rootSignature = nullptr;
     m_depthRootSignature = nullptr;
@@ -352,6 +352,7 @@ void ProcessMaterial(const tinygltf::Model& model, ModelData& modelData)
         }
         material.metallicFactor = static_cast<float>(pbr.metallicFactor);
         material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
+        material.alphaCutoff = mat.alphaMode.empty() ? 1.f : mat.alphaCutoff;
         material.albedoTextureIndex = pbr.baseColorTexture.index;
         material.metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
         material.normalTextureIndex = mat.normalTexture.index;
@@ -400,30 +401,34 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
     CompileShaderFromFile(
         std::filesystem::absolute(mainShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
+        L"VSMain",
         m_vertexShader,
         ShaderType::Vertex);
 
     CompileShaderFromFile(
-        std::filesystem::absolute(mainShader).wstring(),
-        std::filesystem::absolute(shaderPath).wstring(),
-        m_pixelShader,
-        ShaderType::Pixel);
-
-    CompileShaderFromFile(
         std::filesystem::absolute(depthShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
+        L"VSMain",
         m_depthVertexShader,
         ShaderType::Vertex);
 
     CompileShaderFromFile(
         std::filesystem::absolute(gbufferShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
+        L"VSMain",
         gbufferVS,
         ShaderType::Vertex);
     CompileShaderFromFile(
         std::filesystem::absolute(gbufferShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
+        L"PSGBuffer",
         gbufferPS,
+        ShaderType::Pixel);
+    CompileShaderFromFile(
+        std::filesystem::absolute(gbufferShader).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        L"PSAlphaTest",
+        alphaTestPS,
         ShaderType::Pixel);
 
     // Root signature (main pass)
@@ -601,10 +606,10 @@ void Model::CreatePSO()
             {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
         };
 
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        /*D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = m_rootSignature.Get();
         psoDesc.VS = { m_vertexShader->GetBufferPointer(), m_vertexShader->GetBufferSize() };
-        psoDesc.PS = { m_pixelShader->GetBufferPointer(), m_pixelShader->GetBufferSize() };
+        psoDesc.PS = { alphaTestPS->GetBufferPointer(), alphaTestPS->GetBufferSize() };
         psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
         psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
         psoDesc.DepthStencilState = GetDepthStencilState(DepthStencilState::WriteEnabled);
@@ -615,7 +620,7 @@ void Model::CreatePSO()
         psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc.Count = 1;
         psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
-        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&alphaTestPipelineState)));*/
     }
 
     // Depth only PSO
@@ -668,6 +673,9 @@ void Model::CreatePSO()
         psoDesc.SampleDesc.Count = 1;
         psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
         CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferPipelineState)));
+
+        psoDesc.PS = { alphaTestPS->GetBufferPointer(), alphaTestPS->GetBufferSize() };
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&alphaTestPipelineState)));
     }
 }
 
@@ -779,6 +787,7 @@ HRESULT Model::UploadGpuResources()
             matSB.albedoTextureIndex = (material.albedoTextureIndex >= 0) ? m_model.textures[material.albedoTextureIndex].viewIndex : -1;
             matSB.metallicTextureIndex = (material.metallicRoughnessTextureIndex >= 0) ? m_model.textures[material.metallicRoughnessTextureIndex].viewIndex : -1;
             matSB.normalTextureIndex = (material.normalTextureIndex >= 0) ? m_model.textures[material.normalTextureIndex].viewIndex : -1;
+            matSB.alphaCutoff = material.alphaCutoff;
 
             matSB.baseColorFactor = material.baseColorFactor;
 
@@ -882,49 +891,49 @@ HRESULT Model::RenderBasePass(
         return E_FAIL;
     }
     
-    commandList->SetPipelineState(m_pipelineState.Get());
-    commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+    //commandList->SetPipelineState(m_pipelineState.Get());
+    //commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
-    // Bind srv descriptor heaps contain texture srv
-    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
-    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
-    SrvSetAsGfxRootParameter(commandList.Get(), Model_GlobalSRV);
-    sceneCB->SetAsGfxRootParameter(commandList.Get(), Model_SceneCBuffer);
-    lightCB->SetAsGfxRootParameter(commandList.Get(), Model_LightCBuffer);
-    m_meshSB.SetAsGfxRootParameter(commandList.Get(), Model_ModelSBuffer);
+    //// Bind srv descriptor heaps contain texture srv
+    //ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
+    //commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+    //SrvSetAsGfxRootParameter(commandList.Get(), Model_GlobalSRV);
+    //sceneCB->SetAsGfxRootParameter(commandList.Get(), Model_SceneCBuffer);
+    //lightCB->SetAsGfxRootParameter(commandList.Get(), Model_LightCBuffer);
+    //m_meshSB.SetAsGfxRootParameter(commandList.Get(), Model_ModelSBuffer);
 
-    // For now :
-    // App + IMGUI share the same descriptor heap
-    // App reserve on static slot of heap, while UI build slot of heap dynamically
-    // is fine because UI using different root descriptor table than App descriptor table
-    // They only share descriptor heap
+    //// For now :
+    //// App + IMGUI share the same descriptor heap
+    //// App reserve on static slot of heap, while UI build slot of heap dynamically
+    //// is fine because UI using different root descriptor table than App descriptor table
+    //// They only share descriptor heap
 
-    for (size_t i = 0; i < m_model.meshes.size(); ++i)
-    {
-        const auto& mesh = m_model.meshes[i];
-        const auto& resource = m_meshResources[i];
+    //for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    //{
+    //    const auto& mesh = m_model.meshes[i];
+    //    const auto& resource = m_meshResources[i];
 
-        XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
+    //    XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
 
-        // transform bounding box to world space
-        BoundingBox worldBox;
-        mesh.boundingBox.Transform(worldBox, world);
+    //    // transform bounding box to world space
+    //    BoundingBox worldBox;
+    //    mesh.boundingBox.Transform(worldBox, world);
 
-        if (frustum.Contains(worldBox) == DISJOINT)
-        {
-            continue;
-        }
+    //    if (frustum.Contains(worldBox) == DISJOINT)
+    //    {
+    //        continue;
+    //    }
 
-        // Constant
-        ModelConstants constant = {static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex)};
-        commandList->SetGraphicsRoot32BitConstants(Model_ModelConstant, 2, &constant, 0);
+    //    // Constant
+    //    ModelConstants constant = {static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex)};
+    //    commandList->SetGraphicsRoot32BitConstants(Model_ModelConstant, 2, &constant, 0);
 
-        // Set vertex and index buffers
-        commandList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
-        commandList->IASetIndexBuffer(&resource.indexBuffer.IBView());
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
-    }
+    //    // Set vertex and index buffers
+    //    commandList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
+    //    commandList->IASetIndexBuffer(&resource.indexBuffer.IBView());
+    //    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    //    commandList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+    //}
 
     return S_OK;
 }
@@ -951,6 +960,8 @@ void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::Bounding
     sceneCB->SetAsGfxRootParameter(commandList.Get(), 1);
     m_meshSB.SetAsGfxRootParameter(commandList.Get(), 3);
 
+    ComPtr<ID3D12PipelineState> currPSO = gbufferPipelineState;
+
     for (size_t i = 0; i < m_model.meshes.size(); ++i)
     {
         const auto& mesh = m_model.meshes[i];
@@ -971,6 +982,16 @@ void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::Bounding
         ModelConstants constant = { static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex) };
         commandList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
 
+        ComPtr<ID3D12PipelineState> newPSO = gbufferPipelineState;
+        const MaterialData& material = m_model.materials[mesh.materialIndex];
+        if (material.alphaCutoff < 1.f)
+            newPSO = alphaTestPipelineState;
+
+        if (currPSO != newPSO)
+        {
+            commandList->SetPipelineState(newPSO.Get());
+            currPSO = newPSO;
+        }
         // Set vertex and index buffers
         commandList->IASetVertexBuffers(0, 1, &resource.vertexBuffer.VBView());
         commandList->IASetIndexBuffer(&resource.indexBuffer.IBView());

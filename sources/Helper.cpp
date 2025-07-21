@@ -204,7 +204,8 @@ void CreateRootSignature(Microsoft::WRL::ComPtr<ID3D12RootSignature>& rootSignat
 
 void CompileShaderFromFile(
 	const std::wstring& filePath, 
-	const std::wstring& includePath, 
+	const std::wstring& includePath,
+	const std::wstring& functionName,
 	Microsoft::WRL::ComPtr<IDxcBlob>& shaderBlob, 
 	ShaderType type)
 {
@@ -218,7 +219,7 @@ void CompileShaderFromFile(
 	// Compile arguments
 	LPCWSTR arguments[] =
 	{
-		L"-E", L"VSMain",
+		L"-E", functionName.c_str(),
 		L"-T", L"vs_6_0",
 		L"-Zi", L"-WX",
 		L"-I", includePath.c_str()
@@ -227,13 +228,11 @@ void CompileShaderFromFile(
 	if (type == ShaderType::Pixel)
 	{
 		// Compile arguments
-		arguments[1] = L"PSMain";
 		arguments[3] = L"ps_6_0";
 	}
 	else if (type == ShaderType::Compute)
 	{
 		// Compile arguments
-		arguments[1] = L"CSMain";
 		arguments[3] = L"cs_6_0";
 	}
 	else if (type == ShaderType::Library)
