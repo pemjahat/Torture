@@ -3,17 +3,18 @@
 #include "PCH.h"
 #include "Helper.h"
 #include "GraphicsTypes.h"
+#include "../Shaders/HLSLCompatible.h"
 
 using Microsoft::WRL::ComPtr;
 
-struct VertexData
-{
-	DirectX::XMFLOAT3 Position;
-	DirectX::XMFLOAT3 Normal;
-	DirectX::XMFLOAT4 Color;
-	DirectX::XMFLOAT4 Tangent;	// tangent (x, y, z) and handedness (w)
-	DirectX::XMFLOAT2 Uv;
-};
+//struct VertexData
+//{
+//	DirectX::XMFLOAT3 Position;
+//	DirectX::XMFLOAT3 Normal;
+//	DirectX::XMFLOAT4 Color;
+//	DirectX::XMFLOAT4 Tangent;	// tangent (x, y, z) and handedness (w)
+//	DirectX::XMFLOAT2 Uv;
+//};
 
 // Split between texture resource and texture view
 struct TextureResource
@@ -33,17 +34,6 @@ struct TextureView
 	int viewIndex = -1;
 };
 
-struct MaterialData
-{
-	DirectX::XMFLOAT4 baseColorFactor = DirectX::XMFLOAT4(1.f, 1.f, 1.f, 1.f);
-	float metallicFactor = 0.f;
-	float roughnessFactor = 1.f;
-	float alphaCutoff = 0.f;
-	int albedoTextureIndex = -1;
-	int metallicRoughnessTextureIndex = -1;
-	int normalTextureIndex = -1;
-};
-
 struct SamplerData
 {
 	D3D12_FILTER filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;	// Default
@@ -57,7 +47,7 @@ struct SamplerData
 
 struct MeshData
 {
-	std::vector<VertexData> vertices;
+	std::vector<MeshVertex> vertices;
 	std::vector<uint32_t> indices;
 	int materialIndex = -1;
 	uint64_t vertexOffset = 0;
@@ -75,21 +65,6 @@ struct ModelData
 	std::vector<TextureResource> images;
 	bool hasVertexColor = false;
 	bool hasTangent = false;
-};
-
-struct MaterialStructuredBuffer
-{
-	int useVertexColor = 0;
-	int useTangent = 0;
-	float metallicFactor = 0.f;
-	float roughnessFactor = 1.f;
-
-	int albedoTextureIndex = 0;
-	int metallicTextureIndex = 0;
-	int normalTextureIndex = 0;
-	float alphaCutoff;
-
-	DirectX::XMFLOAT4 baseColorFactor;
 };
 
 struct MeshStructuredBuffer
@@ -115,8 +90,8 @@ struct MeshResources
 	StructuredBuffer vertexBuffer;
 	FormattedBuffer indexBuffer;
 	
-	std::vector<VertexData> vertices;
-	std::vector<uint32_t> indices;
+	std::vector<MeshVertex> vertices;	// Combine vertices (blas)
+	std::vector<uint32_t> indices;		// Combine indices
 };
 
 class Model
@@ -142,6 +117,14 @@ public:
 
 	void RenderDepthPrepass();
 	void RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::BoundingFrustum& frustum);
+
+	// Accessor
+	const StructuredBuffer& GetVertexBuffer() const { return meshResource.vertexBuffer; }
+	const FormattedBuffer& GetIndexBuffer() const { return meshResource.indexBuffer; }
+
+	uint32_t NumMeshes() const { return m_model.meshes.size(); }
+	const std::vector<MeshData>& Meshes() const { return m_model.meshes; }
+	const std::vector<MaterialData>& Materials() const { return m_model.materials; }
 
 private:
 	// Helper

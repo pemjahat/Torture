@@ -348,7 +348,7 @@ void ProcessMaterial(const tinygltf::Model& model, ModelData& modelData)
         material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
         material.alphaCutoff = mat.alphaMode.empty() ? 1.f : mat.alphaCutoff;
         material.albedoTextureIndex = pbr.baseColorTexture.index;
-        material.metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
+        material.metallicTextureIndex = pbr.metallicRoughnessTexture.index;
         material.normalTextureIndex = mat.normalTexture.index;
 
         modelData.materials.push_back(std::move(material));
@@ -701,7 +701,7 @@ HRESULT Model::UploadGpuResources()
         auto& mesh = m_model.meshes[i];
 
         // Copy vertex data (byte offset)
-        memcpy(meshResource.vertices.data() + vtxOffset, mesh.vertices.data(), mesh.vertices.size() * sizeof(VertexData));
+        memcpy(meshResource.vertices.data() + vtxOffset, mesh.vertices.data(), mesh.vertices.size() * sizeof(MeshVertex));
 
         // Copy index data (byte offset)
         memcpy(meshResource.indices.data() + idxOffset, mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
@@ -716,7 +716,7 @@ HRESULT Model::UploadGpuResources()
     }
 
     StructuredBufferInit sbi;
-    sbi.stride = sizeof(VertexData);
+    sbi.stride = sizeof(MeshVertex);
     sbi.numElements = numVertices;
     sbi.initData = meshResource.vertices.data();
     sbi.initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
@@ -788,35 +788,24 @@ HRESULT Model::UploadGpuResources()
     }
 
     // Create material structured buffer
-    std::vector<MaterialStructuredBuffer> materials;
     {
         // Repeated information on material
         const bool useVertexColor = m_model.hasVertexColor;
         const bool useTangent = m_model.hasTangent;
 
-        for (const MaterialData& material : m_model.materials)
+        for (MaterialData& mat : m_model.materials)
         {
-            MaterialStructuredBuffer matSB;
-
-            matSB.useVertexColor = useVertexColor;
-            matSB.useTangent = useTangent;
-            matSB.metallicFactor = material.metallicFactor;
-            matSB.roughnessFactor = material.roughnessFactor;
-
-            matSB.albedoTextureIndex = (material.albedoTextureIndex >= 0) ? m_model.textures[material.albedoTextureIndex].viewIndex : -1;
-            matSB.metallicTextureIndex = (material.metallicRoughnessTextureIndex >= 0) ? m_model.textures[material.metallicRoughnessTextureIndex].viewIndex : -1;
-            matSB.normalTextureIndex = (material.normalTextureIndex >= 0) ? m_model.textures[material.normalTextureIndex].viewIndex : -1;
-            matSB.alphaCutoff = material.alphaCutoff;
-
-            matSB.baseColorFactor = material.baseColorFactor;
-
-            materials.push_back(std::move(matSB));
+            mat.useVertexColor = useVertexColor;
+            mat.useTangent = useTangent;
+            mat.albedoViewTextureIndex = (mat.albedoTextureIndex >= 0) ? m_model.textures[mat.albedoTextureIndex].viewIndex : -1;
+            mat.metallicViewTextureIndex = (mat.metallicTextureIndex >= 0) ? m_model.textures[mat.metallicTextureIndex].viewIndex : -1;
+            mat.normalViewTextureIndex = (mat.normalTextureIndex >= 0) ? m_model.textures[mat.normalTextureIndex].viewIndex : -1;            
         }
 
         StructuredBufferInit sbi;
-        sbi.stride = sizeof(MaterialStructuredBuffer);
-        sbi.numElements = materials.size();
-        sbi.initData = materials.data();
+        sbi.stride = sizeof(MaterialData);
+        sbi.numElements = m_model.materials.size();
+        sbi.initData = m_model.materials.data();
         sbi.initState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         sbi.name = L"MaterialStructuredBuffer";
 

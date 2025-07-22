@@ -494,33 +494,38 @@ void RenderApplication::CreateRTGeometryTest()
 
 void RenderApplication::CreateRTAccelerationStructure()
 {
-    D3D12_RAYTRACING_GEOMETRY_DESC geometryDescs[2] = {};
+    const StructuredBuffer& vtxBuffer = m_model.GetVertexBuffer();
+    const FormattedBuffer& idxBuffer = m_model.GetIndexBuffer();
 
-    // Plane
+    const uint32_t numMeshes = m_model.NumMeshes();
+
+    std::vector<D3D12_RAYTRACING_GEOMETRY_DESC> geometryDescs(numMeshes);
+    std::vector<GeometryInfo> geometryInfo(numMeshes);
+
+    for (uint32_t idx = 0; idx < numMeshes; ++idx)
     {
-        geometryDescs[0].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geometryDescs[0].Triangles.IndexBuffer = planeIndexBuffer.internalBuffer.gpuAddress;
-        geometryDescs[0].Triangles.IndexCount = static_cast<UINT>(planeIndexBuffer.internalBuffer.resource->GetDesc().Width) / sizeof(Index);
-        geometryDescs[0].Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
-        geometryDescs[0].Triangles.Transform3x4 = 0;
-        geometryDescs[0].Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-        geometryDescs[0].Triangles.VertexCount = static_cast<UINT>(planeVertexBuffer.internalBuffer.resource->GetDesc().Width) / sizeof(Vertex);
-        geometryDescs[0].Triangles.VertexBuffer.StartAddress = planeVertexBuffer.internalBuffer.gpuAddress;
-        geometryDescs[0].Triangles.VertexBuffer.StrideInBytes = planeVertexBuffer.stride;
-        geometryDescs[0].Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-    }
-    // Box
-    {
-        geometryDescs[1].Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geometryDescs[1].Triangles.IndexBuffer = rtIndexBuffer.internalBuffer.gpuAddress;
-        geometryDescs[1].Triangles.IndexCount = static_cast<UINT>(rtIndexBuffer.internalBuffer.resource->GetDesc().Width) / sizeof(Index);
-        geometryDescs[1].Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
-        geometryDescs[1].Triangles.Transform3x4 = 0;
-        geometryDescs[1].Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-        geometryDescs[1].Triangles.VertexCount = static_cast<UINT>(rtVertexBuffer.internalBuffer.resource->GetDesc().Width) / sizeof(Vertex);
-        geometryDescs[1].Triangles.VertexBuffer.StartAddress = rtVertexBuffer.internalBuffer.gpuAddress;
-        geometryDescs[1].Triangles.VertexBuffer.StrideInBytes = rtVertexBuffer.stride;
-        geometryDescs[1].Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+        const MeshData& mesh = m_model.Meshes()[idx];
+        const MaterialData& material = m_model.Materials()[mesh.materialIndex];
+        const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
+
+        D3D12_RAYTRACING_GEOMETRY_DESC& geomDesc = geometryDescs[idx];
+        geomDesc = {};
+        geomDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        geomDesc.Triangles.IndexBuffer = idxBuffer.internalBuffer.gpuAddress + mesh.indexOffset * idxBuffer.Stride;
+        geomDesc.Triangles.IndexCount = mesh.indices.size();
+        geomDesc.Triangles.IndexFormat = idxBuffer.format;
+        geomDesc.Triangles.Transform3x4 = 0;
+        geomDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+        geomDesc.Triangles.VertexCount = mesh.vertices.size();
+        geomDesc.Triangles.VertexBuffer.StartAddress = vtxBuffer.internalBuffer.gpuAddress + mesh.vertexOffset * vtxBuffer.Stride;
+        geomDesc.Triangles.VertexBuffer.StrideInBytes = vtxBuffer.Stride;
+        geomDesc.Flags = nonOpaque ? D3D12_RAYTRACING_GEOMETRY_FLAG_NONE : D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+
+        GeometryInfo& geomInfo = geometryInfo[idx];
+        geomInfo = {};
+        geomInfo.VtxOffset = mesh.vertexOffset;
+        geomInfo.IdxOffset = mesh.indexOffset;
+        geomInfo.MaterialIdx = mesh.materialIndex;
     }
 
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS buildFlags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
@@ -542,8 +547,8 @@ void RenderApplication::CreateRTAccelerationStructure()
         prebuildInfoDesc.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
         prebuildInfoDesc.Flags = buildFlags;
         prebuildInfoDesc.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-        prebuildInfoDesc.pGeometryDescs = geometryDescs;
-        prebuildInfoDesc.NumDescs = _countof(geometryDescs);
+        prebuildInfoDesc.pGeometryDescs = geometryDescs.data();
+        prebuildInfoDesc.NumDescs = numMeshes;
         d3dDevice->GetRaytracingAccelerationStructurePrebuildInfo(&prebuildInfoDesc, &botLevelPrebuildInfo);
     }
     assert(botLevelPrebuildInfo.ResultDataMaxSizeInBytes > 0);
@@ -600,8 +605,8 @@ void RenderApplication::CreateRTAccelerationStructure()
         botLevelBuildDesc.Inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
         botLevelBuildDesc.Inputs.Flags = buildFlags;
         botLevelBuildDesc.Inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-        botLevelBuildDesc.Inputs.NumDescs = _countof(geometryDescs);
-        botLevelBuildDesc.Inputs.pGeometryDescs = geometryDescs;
+        botLevelBuildDesc.Inputs.NumDescs = numMeshes;
+        botLevelBuildDesc.Inputs.pGeometryDescs = geometryDescs.data();
         botLevelBuildDesc.ScratchAccelerationStructureData = scratchBuffer.internalBuffer.gpuAddress;
         botLevelBuildDesc.DestAccelerationStructureData = blas.internalBuffer.gpuAddress;
     }
@@ -621,6 +626,13 @@ void RenderApplication::CreateRTAccelerationStructure()
 
     commandList->BuildRaytracingAccelerationStructure(&topLevelBuildDesc, 0, nullptr);
     tlas.internalBuffer.UAVBarrier(commandList.Get());
+
+    StructuredBufferInit sbi;
+    sbi.stride = sizeof(GeometryInfo);
+    sbi.numElements = numMeshes;
+    sbi.initData = geometryInfo.data();
+    sbi.name = L"Geometry info buffer";
+    rtGeomInfo.Initialize(sbi);
 }
 
 void RenderApplication::LoadPipeline()

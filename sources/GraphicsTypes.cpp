@@ -268,10 +268,10 @@ void StructuredBuffer::Initialize(const StructuredBufferInit& init)
 	assert(init.stride > 0);
 	assert(init.numElements > 0);
 
-	stride = init.stride;
+	Stride = init.stride;
 	NumElements = init.numElements;
 
-	internalBuffer.Initialize(stride * NumElements, stride, false, false, init.initData, init.initState, init.name);
+	internalBuffer.Initialize(Stride * NumElements, Stride, false, false, init.initData, init.initState, init.name);
 
 	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
 	SRV = srvAlloc.descriptorIndex;
@@ -283,7 +283,7 @@ void StructuredBuffer::Initialize(const StructuredBufferInit& init)
 	srvDesc.Buffer.FirstElement = 0;
 	srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 	srvDesc.Buffer.NumElements = NumElements;
-	srvDesc.Buffer.StructureByteStride = stride;
+	srvDesc.Buffer.StructureByteStride = Stride;
 	d3dDevice->CreateShaderResourceView(internalBuffer.resource.Get(), &srvDesc, srvAlloc.cpuHandle);
 }
 
@@ -311,8 +311,8 @@ D3D12_VERTEX_BUFFER_VIEW StructuredBuffer::VBView() const
 {
 	D3D12_VERTEX_BUFFER_VIEW vbView = {};
 	vbView.BufferLocation = internalBuffer.gpuAddress;
-	vbView.StrideInBytes = stride;
-	vbView.SizeInBytes = stride * NumElements;
+	vbView.StrideInBytes = Stride;
+	vbView.SizeInBytes = Stride * NumElements;
 	return vbView;
 }
 
@@ -321,9 +321,9 @@ D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE StructuredBuffer::ShaderTable(uint64_
 	numElements = std::min(numElements, NumElements - startElement);
 
 	D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE result = {};
-	result.StartAddress = internalBuffer.gpuAddress + stride * startElement;
-	result.SizeInBytes = numElements * stride;
-	result.StrideInBytes = stride;
+	result.StartAddress = internalBuffer.gpuAddress + Stride * startElement;
+	result.SizeInBytes = numElements * Stride;
+	result.StrideInBytes = Stride;
 
 	return result;
 }
@@ -331,8 +331,8 @@ D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE StructuredBuffer::ShaderTable(uint64_
 D3D12_GPU_VIRTUAL_ADDRESS_RANGE StructuredBuffer::ShaderRecord(uint64_t element) const
 {
 	D3D12_GPU_VIRTUAL_ADDRESS_RANGE result = {};
-	result.StartAddress = internalBuffer.gpuAddress + stride * element;
-	result.SizeInBytes = stride;
+	result.StartAddress = internalBuffer.gpuAddress + Stride * element;
+	result.SizeInBytes = Stride;
 
 	return result;
 }

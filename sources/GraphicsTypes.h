@@ -97,7 +97,7 @@ struct StructuredBufferInit
 struct StructuredBuffer
 {
 	Buffer internalBuffer;
-	uint64_t stride = 0;
+	uint64_t Stride = 0;
 	uint64_t NumElements = 0;
 	uint32_t SRV = uint32_t(-1);
 

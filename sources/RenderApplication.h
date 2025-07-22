@@ -108,6 +108,7 @@ private:
     StructuredBuffer rtRayGenTable;
     StructuredBuffer rtHitTable;
     StructuredBuffer rtMissTable;
+    StructuredBuffer rtGeomInfo;
     ComPtr<ID3D12Resource> tempInstanceBuffer;
 
     typedef UINT16 Index;

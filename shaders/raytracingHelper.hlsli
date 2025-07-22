@@ -9,29 +9,76 @@
         float3 direction;
     };
     
-    Ray GenerateCameraRay(uint2 index, in float3 camPosition, in float4x4 projToWorld)
-    {
-        float2 xy = index + 0.5f;
-        float2 screenPos = xy / DispatchRaysDimensions().xy * 2.f - 1.f;
-        
-        // DX coordinate
-        screenPos.y = -screenPos.y;
-        
-        // unproject screen pos into ray
-        float4 world = mul(float4(screenPos, 0, 1), projToWorld);
-        
-        Ray ray;
-        world.xyz /= world.w;
-        ray.origin = camPosition;
-        ray.direction = normalize(world.xyz - ray.origin);
-        
-        return ray;
-    }
-    
     // Retrieve hit world position
     float3 HitWorldPosition()
     {
         return WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
+    }
+    
+    float2 BarycentricLerp(in float2 v0, in float2 v1, in float2 v2, in float3 barycentrics)
+    {
+        return v0 * barycentrics.x + v1 * barycentrics.y + v2 * barycentrics.z;
+    }
+    float3 BarycentricLerp(in float3 v0, in float3 v1, in float3 v2, in float3 barycentrics)
+    {
+        return v0 * barycentrics.x + v1 * barycentrics.y + v2 * barycentrics.z;
+    }
+    float4 BarycentricLerp(in float4 v0, in float4 v1, in float4 v2, in float3 barycentrics)
+    {
+        return v0 * barycentrics.x + v1 * barycentrics.y + v2 * barycentrics.z;
+    }
+    MeshVertex BarycentricLerp(in MeshVertex v0, in MeshVertex v1, in MeshVertex v2, in float3 barycentrics)
+    {
+        MeshVertex vtx;
+        vtx.Position = BarycentricLerp(v0.Position, v1.Position, v2.Position, barycentrics);
+        vtx.Normal = BarycentricLerp(v0.Normal, v1.Normal, v2.Normal, barycentrics);
+        vtx.Color = BarycentricLerp(v0.Color, v1.Color, v2.Color, barycentrics);
+        vtx.Tangent = BarycentricLerp(v0.Tangent, v1.Tangent, v2.Tangent, barycentrics);
+        vtx.Uv = BarycentricLerp(v0.Uv, v1.Uv, v2.Uv, barycentrics);
+        return vtx;
+    }
+    
+    // Generate a ray in world space for a camera pixel corresponding to an index from the dispatched 2D grid.
+    inline Ray GenerateCameraRay(uint2 index, in float3 cameraPosition, in float4x4 projectionToWorld)
+    {
+        float2 xy = index + 0.5f; // center in the middle of the pixel.
+        float2 screenPos = xy / DispatchRaysDimensions().xy * 2.0 - 1.0;
+
+        // Invert Y for DirectX-style coordinates.
+        screenPos.y = -screenPos.y;
+
+        // Unproject the pixel coordinate into a world positon.
+        float4 world = mul(float4(screenPos, 0, 1), projectionToWorld);
+        world.xyz /= world.w;
+
+        Ray ray;
+        ray.origin = cameraPosition;
+        ray.direction = normalize(world.xyz - ray.origin);
+
+        return ray;
+    }
+    
+    // Texture coordinates on a horizontal plane.
+    float2 TexCoords(in float3 position)
+    {
+        return position.xz;
+    }
+
+    // Calculate ray differentials.
+    void CalculateRayDifferentials(out float2 ddx_uv, out float2 ddy_uv, out float3 ddx_pos, out float3 ddy_pos,
+        in float2 uv, in float3 hitPosition, in float3 surfaceNormal, in float3 cameraPosition, in float4x4 projectionToWorld)
+    {
+        // Compute ray differentials by intersecting the tangent plane to the  surface.
+        Ray ddx = GenerateCameraRay(DispatchRaysIndex().xy + uint2(1, 0), cameraPosition, projectionToWorld);
+        Ray ddy = GenerateCameraRay(DispatchRaysIndex().xy + uint2(0, 1), cameraPosition, projectionToWorld);
+
+        // Compute ray differentials.
+        ddx_pos = ddx.origin - ddx.direction * dot(ddx.origin - hitPosition, surfaceNormal) / dot(ddx.direction, surfaceNormal);
+        ddy_pos = ddy.origin - ddy.direction * dot(ddy.origin - hitPosition, surfaceNormal) / dot(ddy.direction, surfaceNormal);
+
+        // Calculate texture sampling footprint.
+        ddx_uv = TexCoords(ddx_pos) - uv;
+        ddy_uv = TexCoords(ddy_pos) - uv;
     }
     
     // Retrieve attribute of hit position interpolated from vertex attribute using hit barrycentric

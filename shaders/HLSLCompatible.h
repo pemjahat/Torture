@@ -42,10 +42,46 @@ struct PrimitiveConstantBuffer
     float specularPower;
 };
 
-struct Vertex
+struct GeometryInfo
 {
-    XMFLOAT3 position;
-    XMFLOAT3 normal;
+    UINT VtxOffset;
+    UINT IdxOffset;
+    UINT MaterialIdx;
+    UINT Pad;
+};
+
+struct MaterialData
+{
+    XMFLOAT4 baseColorFactor;
+
+    int useVertexColor;
+    int useTangent;
+    float metallicFactor;
+    float roughnessFactor;
+
+    int albedoTextureIndex;
+    int metallicTextureIndex;   // Metallic - Roughness - 
+    int normalTextureIndex;
+    float alphaCutoff;
+
+    int albedoViewTextureIndex;
+    int metallicViewTextureIndex;
+    int normalViewTextureIndex;
+};
+
+struct Vertex   // Test
+{
+    XMFLOAT3 Position;
+    XMFLOAT3 Normal;
+};
+
+struct MeshVertex
+{
+    XMFLOAT3 Position;
+    XMFLOAT3 Normal;
+    XMFLOAT4 Color;
+    XMFLOAT4 Tangent;   // tangent (x, y, z) handedness (w)
+    XMFLOAT2 Uv;
 };
 
 struct RayPayload
