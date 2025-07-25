@@ -126,6 +126,9 @@ public:
 	const std::vector<MeshData>& Meshes() const { return m_model.meshes; }
 	const std::vector<MaterialData>& Materials() const { return m_model.materials; }
 
+	const StructuredBuffer& MeshBuffer() const { return m_meshSB; }
+	const StructuredBuffer& MaterialBuffer() const { return m_materialSB; }
+
 private:
 	// Helper
 	D3D12_FILTER GetD3D12Filter(int magFilter, int minFilter);

@@ -1,5 +1,7 @@
 // basic.hlsl (depth only)
 #include "common.hlsl"
+#define HLSL
+#include "HLSLCompatible.h"
 
 struct VSInput
 {
@@ -103,9 +105,9 @@ PSOutput PSGBuffer(VSOutput input)
     }
     
     float3 worldNormal = normalize(input.normal);
-    if (material.normalTextureIndex >= 0)
+    if (material.normalViewTextureIndex >= 0)
     {
-        float3 normalMap = materialTex[NonUniformResourceIndex(material.normalTextureIndex)].Sample(g_sampler, input.uv).rgb;
+        float3 normalMap = materialTex[NonUniformResourceIndex(material.normalViewTextureIndex)].Sample(g_sampler, input.uv).rgb;
         normalMap = normalMap * 2.f - 1.f;
         normalMap = normalize(normalMap);
         
@@ -120,9 +122,9 @@ PSOutput PSGBuffer(VSOutput input)
     {
         albedo = input.color.rgb;
     }
-    else if (material.albedoTextureIndex >= 0)
+    else if (material.albedoViewTextureIndex >= 0)
     {
-        albedo *= materialTex[NonUniformResourceIndex(material.albedoTextureIndex)].Sample(g_sampler, input.uv).rgb;
+        albedo *= materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].Sample(g_sampler, input.uv).rgb;
     }
     
     //
@@ -130,9 +132,9 @@ PSOutput PSGBuffer(VSOutput input)
     //
     float metallic = material.metallicFactor;
     float roughness = material.roughnessFactor;
-    if (material.metallicTextureIndex >= 0)
+    if (material.metallicViewTextureIndex >= 0)
     {
-        float3 matSample = materialTex[NonUniformResourceIndex(material.metallicTextureIndex)].Sample(g_sampler, input.uv).rgb;
+        float3 matSample = materialTex[NonUniformResourceIndex(material.metallicViewTextureIndex)].Sample(g_sampler, input.uv).rgb;
         metallic = matSample.b;
         roughness = matSample.g;
     }
@@ -157,9 +159,9 @@ PSOutput PSAlphaTest(VSOutput input)
     {
         albedo.rgb = input.color.rgb;
     }
-    else if (material.albedoTextureIndex >= 0)
+    else if (material.albedoViewTextureIndex >= 0)
     {
-        float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoTextureIndex)].Sample(g_sampler, input.uv);
+        float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].Sample(g_sampler, input.uv);
         if (albedoSample.a < material.alphaCutoff)
             discard;
         albedo.rgb *= albedoSample.rgb;
@@ -203,9 +205,9 @@ PSOutput PSAlphaTest(VSOutput input)
     }
     
     float3 worldNormal = normalize(input.normal);
-    if (material.normalTextureIndex >= 0)
+    if (material.normalViewTextureIndex >= 0)
     {
-        float3 normalMap = materialTex[NonUniformResourceIndex(material.normalTextureIndex)].Sample(g_sampler, input.uv).rgb;
+        float3 normalMap = materialTex[NonUniformResourceIndex(material.normalViewTextureIndex)].Sample(g_sampler, input.uv).rgb;
         normalMap = normalMap * 2.f - 1.f;
         normalMap = normalize(normalMap);
         
@@ -217,9 +219,9 @@ PSOutput PSAlphaTest(VSOutput input)
     //
     float metallic = material.metallicFactor;
     float roughness = material.roughnessFactor;
-    if (material.metallicTextureIndex >= 0)
+    if (material.metallicViewTextureIndex >= 0)
     {
-        float3 matSample = materialTex[NonUniformResourceIndex(material.metallicTextureIndex)].Sample(g_sampler, input.uv).rgb;
+        float3 matSample = materialTex[NonUniformResourceIndex(material.metallicViewTextureIndex)].Sample(g_sampler, input.uv).rgb;
         metallic = matSample.b;
         roughness = matSample.g;
     }

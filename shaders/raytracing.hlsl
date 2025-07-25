@@ -57,13 +57,17 @@
         rayDesc.TMin = 0;
         rayDesc.TMax = 10000;
         
+        uint rayTraceFlag = 0;
+        if (currentRayRecursionDepth >= MAX_ANYHIT_DEPTH)
+            rayTraceFlag = RAY_FLAG_FORCE_OPAQUE;
+        
         RayPayload rayPayload = { float4(0, 0, 0, 0), currentRayRecursionDepth + 1 };
         TraceRay(
         scene,
-        RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+        rayTraceFlag,
         TraceRayParameters::InstanceMask,
         TraceRayParameters::HitGroup::Offset[RayType::Radiance],
-        0,
+        RayType::Count,
         TraceRayParameters::MissShader::Offset[RayType::Radiance],
         rayDesc,
         rayPayload);
@@ -84,18 +88,19 @@
         rayDesc.TMin = 0;
         rayDesc.TMax = 10000;
         
+        uint traceRayFlag = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+        if (currentRayRecursionDepth >= MAX_ANYHIT_DEPTH)
+            rayTraceFlag = RAY_FLAG_FORCE_OPAQUE;
+        
     // Init value is true since closest hit + any hit is skipped
     // Only if miss called, will set to false
         ShadowRayPayload shadowPayload = { true };
         TraceRay(
         scene,
-        RAY_FLAG_CULL_BACK_FACING_TRIANGLES |
-        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
-        RAY_FLAG_FORCE_OPAQUE |
-        RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, // Skip closest hit shader
+        traceRayFlag,
         TraceRayParameters::InstanceMask,
         TraceRayParameters::HitGroup::Offset[RayType::Shadow],
-        0,
+        RayType::Count,
         TraceRayParameters::MissShader::Offset[RayType::Shadow],
         rayDesc,
         shadowPayload);

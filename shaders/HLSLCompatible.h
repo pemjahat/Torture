@@ -12,6 +12,7 @@ typedef uint UINT;
 using namespace DirectX;
 #endif
 
+#define MAX_ANYHIT_DEPTH 2
 #define MAX_RECURSION_DEPTH 3   // primary ray + reflection + shadows
 
 struct SceneConstantBuffer

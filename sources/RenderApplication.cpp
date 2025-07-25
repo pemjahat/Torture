@@ -126,7 +126,7 @@ void RenderApplication::CreateRT()
         raytraceLib,
         ShaderType::Library);
 
-    D3D12_ROOT_PARAMETER1 rootParameters[7] = {};
+    D3D12_ROOT_PARAMETER1 rootParameters[9] = {};
     // Acceleration structure
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -145,6 +145,26 @@ void RenderApplication::CreateRT()
     rootParameters[2].Descriptor.RegisterSpace = 0;
     rootParameters[2].Descriptor.ShaderRegister = 2;
     rootParameters[2].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    
+    // Geometry + Material info
+    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[3].Descriptor.RegisterSpace = 0;
+    rootParameters[3].Descriptor.ShaderRegister = 3;
+    rootParameters[3].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[4].Descriptor.RegisterSpace = 0;
+    rootParameters[4].Descriptor.ShaderRegister = 4;
+    rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    // Bindless
+    rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[5].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
+    rootParameters[5].DescriptorTable.NumDescriptorRanges = 1;
+
     // UAV
     D3D12_DESCRIPTOR_RANGE1 uavRanges[1] = {};
     uavRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
@@ -152,35 +172,33 @@ void RenderApplication::CreateRT()
     uavRanges[0].BaseShaderRegister = 0;
     uavRanges[0].RegisterSpace = 0;
     uavRanges[0].OffsetInDescriptorsFromTableStart = 0;
-    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[3].DescriptorTable.pDescriptorRanges = uavRanges;
-    rootParameters[3].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
-
-    // Scene + Light + Plane Material CB
-    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[4].Descriptor.RegisterSpace = 0;
-    rootParameters[4].Descriptor.ShaderRegister = 0;
-    rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
-
-    rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[5].Descriptor.RegisterSpace = 0;
-    rootParameters[5].Descriptor.ShaderRegister = 1;
-    rootParameters[5].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
-
-    rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[6].Descriptor.RegisterSpace = 0;
-    rootParameters[6].Descriptor.ShaderRegister = 2;
-    rootParameters[6].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    rootParameters[6].DescriptorTable.pDescriptorRanges = uavRanges;
+    rootParameters[6].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
+
+    // Scene + Light 
+    rootParameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[7].Descriptor.RegisterSpace = 0;
+    rootParameters[7].Descriptor.ShaderRegister = 0;
+    rootParameters[7].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    rootParameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[8].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[8].Descriptor.RegisterSpace = 0;
+    rootParameters[8].Descriptor.ShaderRegister = 1;
+    rootParameters[8].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    // Static sampler
+    D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
+    staticSampler[0] = GetStaticSamplerState(SamplerState::Linear, 0, 0);
 
     D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
     rootSignatureDesc.NumParameters = _countof(rootParameters);
     rootSignatureDesc.pParameters = rootParameters;
-    rootSignatureDesc.NumStaticSamplers = 0;
-    rootSignatureDesc.pStaticSamplers = nullptr;
+    rootSignatureDesc.NumStaticSamplers = _countof(staticSampler);
+    rootSignatureDesc.pStaticSamplers = staticSampler;
 
     CreateRootSignature(rtRootSignature, rootSignatureDesc);
 }
@@ -200,7 +218,7 @@ void RenderApplication::CreateRTPipelineStateObject()
     // 1 - Pipeline config
 
     StateObjectBuilder builder;
-    builder.Init(7);
+    builder.Init(9);
 
     {
         // DXIL
@@ -217,10 +235,27 @@ void RenderApplication::CreateRTPipelineStateObject()
         builder.AddSubObject(hitDesc);
     }
     {
+        // Alpha test
+        D3D12_HIT_GROUP_DESC hitDesc = {};
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hitDesc.ClosestHitShaderImport = L"MyClosestHitShader";
+        hitDesc.AnyHitShaderImport = L"MyAnyHitShader";
+        hitDesc.HitGroupExport = L"MyHitGroup_AlphaTest";
+        builder.AddSubObject(hitDesc);
+    }
+    {
         // Closest hit (Shadow)
         D3D12_HIT_GROUP_DESC hitDesc = {};
         hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;        
         hitDesc.HitGroupExport = L"MyHitGroup_Shadow";
+        builder.AddSubObject(hitDesc);
+    }
+    {
+        // Alpha test (shadow)
+        D3D12_HIT_GROUP_DESC hitDesc = {};
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hitDesc.AnyHitShaderImport = L"MyAnyHitShader_Shadow";
+        hitDesc.HitGroupExport = L"MyHitGroup_AlphaTestShadow";
         builder.AddSubObject(hitDesc);
     }
     {
@@ -251,7 +286,9 @@ void RenderApplication::CreateRTPipelineStateObject()
     const void* missID = psoProps->GetShaderIdentifier(L"MyMissShader");
     const void* shadowMissID = psoProps->GetShaderIdentifier(L"MyMissShader_Shadow");
     const void* hitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_Radiance");
+    const void* alphaTestHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_AlphaTest");
     const void* shadowHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_Shadow");
+    const void* shadowAlphaTestHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_AlphaTestSadow");
     // Shader tables
     {
         ShaderIdentifier raygenRecords[1] = { ShaderIdentifier(raygenID) };
@@ -274,14 +311,27 @@ void RenderApplication::CreateRTPipelineStateObject()
         rtMissTable.Initialize(sbInit);
     }
     {
-        ShaderIdentifier hitRecords[2] = { ShaderIdentifier(hitgroupID), ShaderIdentifier(shadowHitgroupID)};
+        const uint32_t numMeshes = m_model.NumMeshes();
+
+        std::vector<ShaderIdentifier> hitRecords(2 * numMeshes);
+        for (uint32_t i = 0; i < numMeshes; ++i)
+        {
+            const MeshData& mesh = m_model.Meshes()[i];
+            const MaterialData& material = m_model.Materials()[mesh.materialIndex];
+            const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
+
+            hitRecords[i * 2 + 0] = nonOpaque ? ShaderIdentifier(alphaTestHitgroupID) : ShaderIdentifier(hitgroupID);
+            hitRecords[i * 2 + 1] = nonOpaque ? ShaderIdentifier(shadowAlphaTestHitgroupID) : ShaderIdentifier(shadowHitgroupID);
+        }
 
         StructuredBufferInit sbInit;
         sbInit.stride = sizeof(ShaderIdentifier);
-        sbInit.numElements = _countof(hitRecords);
-        sbInit.initData = hitRecords;
+        sbInit.numElements = hitRecords.size();
+        sbInit.initData = hitRecords.data();
         sbInit.name = L"Hit Shader Table";
         rtHitTable.Initialize(sbInit);
+
+        //ShaderIdentifier hitRecords[2] = { ShaderIdentifier(hitgroupID), ShaderIdentifier(shadowHitgroupID)};
     }
 
     psoProps->Release();
@@ -1292,10 +1342,12 @@ void RenderApplication::RenderRaytracing()
     commandList->SetComputeRootShaderResourceView(0, tlas.internalBuffer.gpuAddress);
     commandList->SetComputeRootShaderResourceView(1, rtIndexBuffer.internalBuffer.gpuAddress);
     commandList->SetComputeRootShaderResourceView(2, rtVertexBuffer.internalBuffer.gpuAddress);
-    commandList->SetComputeRootDescriptorTable(3, rtBuffer.uavGpuAddress);    
+    commandList->SetComputeRootShaderResourceView(3, rtGeomInfo.internalBuffer.gpuAddress);
+
+    SrvSetAsComputeRootParameter(commandList.Get(), 4);
+    commandList->SetComputeRootDescriptorTable(5, rtBuffer.uavGpuAddress);    
     m_sceneCB.SetAsComputeRootParameter(commandList.Get(), 4);
     m_lightCB.SetAsComputeRootParameter(commandList.Get(), 5);
-    matCB.SetAsComputeRootParameter(commandList.Get(), 6);
 
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier = CD3DX12_RESOURCE_BARRIER::Transition(
