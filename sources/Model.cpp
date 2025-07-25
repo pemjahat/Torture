@@ -240,7 +240,7 @@ void ProcessMesh(const tinygltf::Model& model, ModelData& modelData)
             // Get tangent
             if (primitive.attributes.find("TANGENT") != primitive.attributes.end())
             {
-                modelData.hasTangent = 1;
+                primitiveData.hasTangent = true;
 
                 const tinygltf::Accessor& tangentAccessor = model.accessors[primitive.attributes.at("TANGENT")];
                 const tinygltf::BufferView& tangentView = model.bufferViews[tangentAccessor.bufferView];
@@ -260,7 +260,7 @@ void ProcessMesh(const tinygltf::Model& model, ModelData& modelData)
             // Get vertex color
             if (primitive.attributes.find("COLOR_0") != primitive.attributes.end())
             {
-                modelData.hasVertexColor = 1;
+                primitiveData.hasVertexColor = true;
 
                 const tinygltf::Accessor& colorAccessor = model.accessors[primitive.attributes.at("COLOR_0")];
                 const tinygltf::BufferView& colorView = model.bufferViews[colorAccessor.bufferView];
@@ -787,6 +787,8 @@ HRESULT Model::UploadGpuResources()
                 meshSB.extentsBound = worldBox.Extents;
                 meshSB.vertexOffset = primitive.vertexOffset;
                 meshSB.indexOffset = primitive.indexOffset;
+                meshSB.useVertexColor = primitive.hasVertexColor ? 1 : 0;
+                meshSB.useTangent = primitive.hasTangent ? 1 : 0;
                 meshes.push_back(std::move(meshSB));
             }
         }
@@ -804,16 +806,10 @@ HRESULT Model::UploadGpuResources()
     // Create material structured buffer
     std::vector<MaterialStructuredBuffer> materials;
     {
-        // Repeated information on material
-        const bool useVertexColor = m_model.hasVertexColor;
-        const bool useTangent = m_model.hasTangent;
-
         for (const MaterialData& material : m_model.materials)
         {
             MaterialStructuredBuffer matSB;
 
-            matSB.useVertexColor = useVertexColor;
-            matSB.useTangent = useTangent;
             matSB.metallicFactor = material.metallicFactor;
             matSB.roughnessFactor = material.roughnessFactor;
 

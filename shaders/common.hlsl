@@ -35,13 +35,14 @@ struct MeshData
     float3 extentsBound;
     uint indexOffset;
     
+    int useVertexColor;
+    int useTangent; //  1 if tangent available, 0 use Mikktspace
+    
     float4x4 meshTransform; //Per-mesh transform
 };
 
 struct MaterialData
 {
-    int useVertexColor;
-    int useTangent; //  1 if tangent available, 0 use Mikktspace
     float metallicFactor;
     float roughnessFactor;
     

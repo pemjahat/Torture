@@ -61,6 +61,8 @@ struct PrimitiveData
 	std::vector<uint32_t> indices;
 	uint64_t vertexOffset = 0;
 	uint64_t indexOffset = 0;
+	bool hasVertexColor = false;
+	bool hasTangent = false;
 	int materialIndex = -1;
 	DirectX::BoundingBox boundingBox;
 };
@@ -84,14 +86,10 @@ struct ModelData
 	std::vector<MaterialData> materials;
 	std::vector<TextureView> textures;
 	std::vector<TextureResource> images;
-	bool hasVertexColor = false;
-	bool hasTangent = false;
 };
 
 struct MaterialStructuredBuffer
 {
-	int useVertexColor = 0;
-	int useTangent = 0;
 	float metallicFactor = 0.f;
 	float roughnessFactor = 1.f;
 
@@ -110,6 +108,9 @@ struct MeshStructuredBuffer
 	
 	DirectX::XMFLOAT3 extentsBound;
 	UINT indexOffset;
+
+	int useVertexColor;
+	int useTangent; //  1 if tangent available, 0 use Mikktspace
 
 	DirectX::XMFLOAT4X4 meshTransform;
 };
