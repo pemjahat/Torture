@@ -55,19 +55,30 @@ struct SamplerData
 	D3D12_GPU_DESCRIPTOR_HANDLE samplerGpuHandle;
 };
 
-struct MeshData
+struct PrimitiveData
 {
 	std::vector<VertexData> vertices;
 	std::vector<uint32_t> indices;
-	int materialIndex = -1;
 	uint64_t vertexOffset = 0;
 	uint64_t indexOffset = 0;
-	DirectX::XMFLOAT4X4 transform;	// Node hierarchy transform
+	int materialIndex = -1;
 	DirectX::BoundingBox boundingBox;
+};
+
+struct MeshData
+{
+	std::vector<PrimitiveData> primitives;
+};
+
+struct NodeData
+{	
+	int meshIndex = -1;
+	DirectX::XMFLOAT4X4 transform;	// Node hierarchy transform
 };
 
 struct ModelData
 {
+	std::vector<NodeData> nodes;
 	std::vector<MeshData> meshes;
 	std::vector<SamplerData> samplers;
 	std::vector<MaterialData> materials;

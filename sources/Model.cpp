@@ -148,18 +148,30 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
    /*
    * buffer: 0, byteoffset: 0, bytelength: 256, bytestride: 32
    */
-
-   // Only process if mesh preset (ignore camera node for now)
+    // Only store transform if nodes has meshes, otherwise just pass through
     if (node.mesh >= 0)
     {
-        const auto& mesh = model.meshes[node.mesh];
-        MeshData meshData;
-        // Row-Major vs Colum-Major issue
-        //XMStoreFloat4x4(&meshData.transform, XMMatrixTranspose(nodeTransform));
-        XMStoreFloat4x4(&meshData.transform, nodeTransform);
+        NodeData nodeData;
+        nodeData.meshIndex = node.mesh;
+        XMStoreFloat4x4(&nodeData.transform, nodeTransform);
+        modelData.nodes.push_back(std::move(nodeData));
+    }
 
+    // Recursive process children
+    for (int childIndex : node.children)
+    {
+        ProcessNode(model, childIndex, nodeTransform, modelData);
+    }
+}
+
+void ProcessMesh(const tinygltf::Model& model, ModelData& modelData)
+{
+    for (auto& mesh : model.meshes)
+    {
+        MeshData meshData;
         for (const auto& primitive : mesh.primitives)
         {
+            PrimitiveData primitiveData;
             // Get Position
             if (primitive.attributes.find("POSITION") != primitive.attributes.end())
             {
@@ -169,13 +181,13 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
 
                 const unsigned char* bufferData = &posBuffer.data[posView.byteOffset + posAccessor.byteOffset];
                 size_t byteStride = posView.byteStride ? posView.byteStride : sizeof(float) * 3;    // Handle interleaved or non-interleaved
-                meshData.vertices.resize(posAccessor.count);
+                primitiveData.vertices.resize(posAccessor.count);
                 for (size_t i = 0; i < posAccessor.count; ++i)
                 {
                     const float* postData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    meshData.vertices[i].Position = XMFLOAT3(postData[0], postData[1], postData[2]);
+                    primitiveData.vertices[i].Position = XMFLOAT3(postData[0], postData[1], postData[2]);
                 }
-                
+
                 // AABB
                 XMFLOAT3 min = XMFLOAT3(
                     static_cast<float>(posAccessor.minValues[0]),
@@ -187,7 +199,7 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                     static_cast<float>(posAccessor.maxValues[1]),
                     static_cast<float>(posAccessor.maxValues[2]));
 
-                BoundingBox::CreateFromPoints(meshData.boundingBox, XMLoadFloat3(&min), XMLoadFloat3(&max));
+                BoundingBox::CreateFromPoints(primitiveData.boundingBox, XMLoadFloat3(&min), XMLoadFloat3(&max));
             }
 
             // Get Normal
@@ -200,11 +212,11 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const unsigned char* bufferData = &normBuffer.data[normView.byteOffset + normAccessor.byteOffset];
                 size_t byteStride = normView.byteStride ? normView.byteStride : sizeof(float) * 3;
 
-                assert(normAccessor.count == meshData.vertices.size());
+                assert(normAccessor.count == primitiveData.vertices.size());
                 for (size_t i = 0; i < normAccessor.count; ++i)
                 {
                     const float* normData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    meshData.vertices[i].Normal = XMFLOAT3(normData[0], normData[1], normData[2]);
+                    primitiveData.vertices[i].Normal = XMFLOAT3(normData[0], normData[1], normData[2]);
                 }
             }
 
@@ -218,11 +230,11 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const unsigned char* bufferData = &uvBuffer.data[uvView.byteOffset + uvAccessor.byteOffset];
                 size_t byteStride = uvView.byteStride ? uvView.byteStride : sizeof(float) * 2;
 
-                assert(uvAccessor.count == meshData.vertices.size());
+                assert(uvAccessor.count == primitiveData.vertices.size());
                 for (size_t i = 0; i < uvAccessor.count; ++i)
                 {
                     const float* uvData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    meshData.vertices[i].Uv = XMFLOAT2(uvData[0], uvData[1]);
+                    primitiveData.vertices[i].Uv = XMFLOAT2(uvData[0], uvData[1]);
                 }
             }
             // Get tangent
@@ -237,11 +249,11 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const unsigned char* bufferData = &tangentBuffer.data[tangentView.byteOffset + tangentAccessor.byteOffset];
                 size_t byteStride = tangentView.byteStride ? tangentView.byteStride : sizeof(float) * 4;
 
-                assert(tangentAccessor.count == meshData.vertices.size());
+                assert(tangentAccessor.count == primitiveData.vertices.size());
                 for (size_t i = 0; i < tangentAccessor.count; ++i)
                 {
                     const float* tangentData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    meshData.vertices[i].Tangent = XMFLOAT4(tangentData[0], tangentData[1], tangentData[2], tangentData[3]);
+                    primitiveData.vertices[i].Tangent = XMFLOAT4(tangentData[0], tangentData[1], tangentData[2], tangentData[3]);
                 }
             }
 
@@ -257,11 +269,11 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const unsigned char* bufferData = &colorBuffer.data[colorView.byteOffset + colorAccessor.byteOffset];
                 size_t byteStride = colorView.byteStride ? colorView.byteStride : sizeof(float) * 4;
 
-                assert(colorAccessor.count == meshData.vertices.size());
+                assert(colorAccessor.count == primitiveData.vertices.size());
                 for (size_t i = 0; i < colorAccessor.count; ++i)
                 {
                     const float* colorData = reinterpret_cast<const float*>(bufferData + i * byteStride);
-                    meshData.vertices[i].Color = XMFLOAT4(colorData[0], colorData[1], colorData[2], colorData[3]);
+                    primitiveData.vertices[i].Color = XMFLOAT4(colorData[0], colorData[1], colorData[2], colorData[3]);
                 }
             }
 
@@ -273,36 +285,29 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
                 const tinygltf::Buffer& indexBuffer = model.buffers[indexView.buffer];
 
                 const unsigned char* bufferData = &indexBuffer.data[indexView.byteOffset + indexAccessor.byteOffset];
-                meshData.indices.resize(indexAccessor.count);
+                primitiveData.indices.resize(indexAccessor.count);
 
                 if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
                 {
                     const uint16_t* indexData = reinterpret_cast<const uint16_t*>(bufferData);
                     for (size_t i = 0; i < indexAccessor.count; ++i) {
-                        meshData.indices[i] = static_cast<uint32_t>(indexData[i]);
+                        primitiveData.indices[i] = static_cast<uint32_t>(indexData[i]);
                     }
                 }
                 else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT)
                 {
                     const uint32_t* indexData = reinterpret_cast<const uint32_t*>(bufferData);
                     for (size_t i = 0; i < indexAccessor.count; ++i) {
-                        meshData.indices[i] = indexData[i];
+                        primitiveData.indices[i] = indexData[i];
                     }
                 }
             }
 
             // Get material index
-            meshData.materialIndex = primitive.material;
-
-            modelData.meshes.push_back(std::move(meshData));
+            primitiveData.materialIndex = primitive.material;
+            meshData.primitives.push_back(std::move(primitiveData));
         }
-    }
-    
-
-    // Recursive process children
-    for (int childIndex : node.children)
-    {
-        ProcessNode(model, childIndex, nodeTransform, modelData);
+        modelData.meshes.push_back(std::move(meshData));
     }
 }
 
@@ -368,6 +373,7 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
     if (!ret) { return E_FAIL; }
 
     // Clear data
+    m_model.nodes.clear();
     m_model.meshes.clear();
     //m_model.textures.clear();
 
@@ -379,7 +385,7 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
         ProcessNode(model, nodeIndex, identity, m_model);
     }
 
-    // Process material
+    ProcessMesh(model, m_model);
     ProcessMaterial(model, m_model);
 
 	return S_OK;
@@ -683,12 +689,13 @@ HRESULT Model::UploadGpuResources()
     uint64_t numVertices = 0;
     uint64_t numIndices = 0;
 
-    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    for (const auto& mesh : m_model.meshes)
     {
-        auto& mesh = m_model.meshes[i];
-
-        numVertices += mesh.vertices.size();
-        numIndices += mesh.indices.size();
+        for (const auto& primitive : mesh.primitives)
+        {
+            numVertices += primitive.vertices.size();
+            numIndices += primitive.indices.size();
+        }
     }
 
     // Create mesh resources
@@ -696,23 +703,25 @@ HRESULT Model::UploadGpuResources()
     meshResource.indices.resize(numIndices);
     uint64_t vtxOffset = 0;
     uint64_t idxOffset = 0;
-    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+
+    for (auto& mesh : m_model.meshes)
     {
-        auto& mesh = m_model.meshes[i];
+        for (auto& primitive : mesh.primitives)
+        {
+            // Copy vertex data (byte offset)
+            memcpy(meshResource.vertices.data() + vtxOffset, primitive.vertices.data(), primitive.vertices.size() * sizeof(VertexData));
 
-        // Copy vertex data (byte offset)
-        memcpy(meshResource.vertices.data() + vtxOffset, mesh.vertices.data(), mesh.vertices.size() * sizeof(VertexData));
+            // Copy index data (byte offset)
+            memcpy(meshResource.indices.data() + idxOffset, primitive.indices.data(), primitive.indices.size() * sizeof(uint32_t));
 
-        // Copy index data (byte offset)
-        memcpy(meshResource.indices.data() + idxOffset, mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
+            // Copy the offset
+            primitive.vertexOffset = vtxOffset;
+            primitive.indexOffset = idxOffset;
 
-        // Copy the offset
-        mesh.vertexOffset = vtxOffset;
-        mesh.indexOffset = idxOffset;
-
-        // Advance it
-        vtxOffset += mesh.vertices.size();
-        idxOffset += mesh.indices.size();
+            // Advance it
+            vtxOffset += primitive.vertices.size();
+            idxOffset += primitive.indices.size();
+        }
     }
 
     StructuredBufferInit sbi;
@@ -757,24 +766,29 @@ HRESULT Model::UploadGpuResources()
     // Create mesh structured buffer
     std::vector<MeshStructuredBuffer> meshes;
     {
-        for (const MeshData& mesh : m_model.meshes)
+        for (const NodeData& node : m_model.nodes)
         {
-            MeshStructuredBuffer meshSB;
-            DirectX::BoundingBox boundingBox;
+            XMMATRIX world = XMLoadFloat4x4(&node.transform);
 
-            // Transpose is for purpose row major(gltf) - column major(directX)
-            XMStoreFloat4x4(&meshSB.meshTransform, XMMatrixTranspose(XMLoadFloat4x4(&mesh.transform)));
+            const MeshData& mesh = m_model.meshes[node.meshIndex];
+            for (const PrimitiveData& primitive : mesh.primitives)
+            {
+                MeshStructuredBuffer meshSB;
+                DirectX::BoundingBox boundingBox;
 
-            // Transform bounding box to world space
-            XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
-            BoundingBox worldBox;
-            mesh.boundingBox.Transform(worldBox, world);
+                // Transpose is for purpose row major(gltf) - column major(directX)
+                XMStoreFloat4x4(&meshSB.meshTransform, XMMatrixTranspose(world));
 
-            meshSB.centerBound = worldBox.Center;
-            meshSB.extentsBound = worldBox.Extents;
-            meshSB.vertexOffset = mesh.vertexOffset;
-            meshSB.indexOffset = mesh.indexOffset;
-            meshes.push_back(std::move(meshSB));
+                // Transform bounding box to world space
+                BoundingBox worldBox;
+                primitive.boundingBox.Transform(worldBox, world);
+
+                meshSB.centerBound = worldBox.Center;
+                meshSB.extentsBound = worldBox.Extents;
+                meshSB.vertexOffset = primitive.vertexOffset;
+                meshSB.indexOffset = primitive.indexOffset;
+                meshes.push_back(std::move(meshSB));
+            }
         }
 
         StructuredBufferInit sbi;
@@ -856,7 +870,7 @@ HRESULT Model::RenderDepthOnly(
     const ConstantBuffer* sceneCB,
     const BoundingFrustum& frustum)
 {
-    if (m_model.meshes.empty())
+    if (m_model.nodes.empty())
     {
         return E_FAIL;
     }
@@ -874,29 +888,31 @@ HRESULT Model::RenderDepthOnly(
     commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    UINT constantIndex = 0;
+    for (const auto& node : m_model.nodes)
     {
-        const auto& mesh = m_model.meshes[i];
-
-        XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
-
-        // transform bounding box to world space
-        BoundingBox worldBox;
-        mesh.boundingBox.Transform(worldBox, world);
-
-        if (frustum.Contains(worldBox) == DISJOINT)
+        XMMATRIX world = XMLoadFloat4x4(&node.transform);
+        const MeshData& mesh = m_model.meshes[node.meshIndex];
+        for (const auto& primitive : mesh.primitives)
         {
-            continue;
+            // transform bounding box to world space
+            BoundingBox worldBox;
+            primitive.boundingBox.Transform(worldBox, world);
+            if (frustum.Contains(worldBox) == DISJOINT)
+            {
+                constantIndex++;
+                continue;
+            }
+
+            // constant
+            ModelConstants constant = { static_cast<UINT>(constantIndex), static_cast<UINT>(primitive.materialIndex) };
+            commandList->SetGraphicsRoot32BitConstants(1, 2, &constant, 0);
+
+            // Set vertex and index buffers
+            commandList->DrawIndexedInstanced(primitive.indices.size(), 1, primitive.indexOffset, primitive.vertexOffset, 0);
+            constantIndex++;
         }
-
-        // Constant
-        ModelConstants constant = { static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex) };
-        commandList->SetGraphicsRoot32BitConstants(1, 2, &constant, 0);
-
-        // Set vertex and index buffers
-        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, mesh.indexOffset, mesh.vertexOffset, 0);
     }
-
     return S_OK;
 }
 
@@ -905,7 +921,7 @@ HRESULT Model::RenderBasePass(
     const ConstantBuffer* lightCB,
     const BoundingFrustum& frustum)
 {
-    if (m_model.meshes.empty())
+    if (m_model.nodes.empty())
     {
         return E_FAIL;
     }
@@ -964,7 +980,7 @@ void Model::RenderDepthPrepass()
 
 void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::BoundingFrustum& frustum)
 {
-    if (m_model.meshes.empty())
+    if (m_model.nodes.empty())
     {
         return;
     }
@@ -985,36 +1001,40 @@ void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::Bounding
 
     ComPtr<ID3D12PipelineState> currPSO = gbufferPipelineState;
 
-    for (size_t i = 0; i < m_model.meshes.size(); ++i)
+    UINT constantIndex = 0;
+    for (const auto& node : m_model.nodes)
     {
-        const auto& mesh = m_model.meshes[i];
-
-        XMMATRIX world = XMLoadFloat4x4(&mesh.transform);
-
-        // transform bounding box to world space
-        BoundingBox worldBox;
-        mesh.boundingBox.Transform(worldBox, world);
-
-        if (frustum.Contains(worldBox) == DISJOINT)
+        XMMATRIX world = XMLoadFloat4x4(&node.transform);
+        const MeshData& mesh = m_model.meshes[node.meshIndex];
+        for (const auto& primitive : mesh.primitives)
         {
-            continue;
+            // transform bounding box to world space
+            BoundingBox worldBox;
+            primitive.boundingBox.Transform(worldBox, world);
+
+            if (frustum.Contains(worldBox) == DISJOINT)
+            {
+                constantIndex++;
+                continue;
+            }
+
+            // Constant
+            ModelConstants constant = { static_cast<UINT>(constantIndex), static_cast<UINT>(primitive.materialIndex) };
+            commandList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
+
+            ComPtr<ID3D12PipelineState> newPSO = gbufferPipelineState;
+            const MaterialData& material = m_model.materials[primitive.materialIndex];
+            if (material.alphaCutoff < 1.f)
+                newPSO = alphaTestPipelineState;
+
+            if (currPSO != newPSO)
+            {
+                commandList->SetPipelineState(newPSO.Get());
+                currPSO = newPSO;
+            }
+            // Set vertex and index buffers
+            commandList->DrawIndexedInstanced(primitive.indices.size(), 1, primitive.indexOffset, primitive.vertexOffset, 0);
+            constantIndex++;
         }
-
-        // Constant
-        ModelConstants constant = { static_cast<UINT>(i), static_cast<UINT>(mesh.materialIndex) };
-        commandList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
-
-        ComPtr<ID3D12PipelineState> newPSO = gbufferPipelineState;
-        const MaterialData& material = m_model.materials[mesh.materialIndex];
-        if (material.alphaCutoff < 1.f)
-            newPSO = alphaTestPipelineState;
-
-        if (currPSO != newPSO)
-        {
-            commandList->SetPipelineState(newPSO.Get());
-            currPSO = newPSO;
-        }
-        // Set vertex and index buffers
-        commandList->DrawIndexedInstanced(mesh.indices.size(), 1, mesh.indexOffset, mesh.vertexOffset, 0);
     }
 }
