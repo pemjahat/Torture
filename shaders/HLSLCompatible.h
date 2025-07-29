@@ -13,7 +13,7 @@ using namespace DirectX;
 #endif
 
 #define MAX_ANYHIT_DEPTH 2
-#define MAX_RECURSION_DEPTH 3   // primary ray + reflection + shadows
+#define MAX_RECURSION_DEPTH 1   // primary ray + reflection + shadows
 
 struct SceneConstantBuffer
 {
@@ -43,20 +43,19 @@ struct PrimitiveConstantBuffer
     float specularPower;
 };
 
-struct GeometryInfo
+struct InstanceInfo
 {
     UINT VtxOffset;
-    UINT IdxOffset;
+    UINT IdxOffsetByBytes;  // Accessing byte buffer
     UINT MaterialIdx;
-    UINT Pad;
+    UINT UseTangent;
+    UINT UseVertexColor;
 };
 
 struct MaterialData
 {
     XMFLOAT4 baseColorFactor;
 
-    int useVertexColor;
-    int useTangent;
     float metallicFactor;
     float roughnessFactor;
 
@@ -68,6 +67,17 @@ struct MaterialData
     int albedoViewTextureIndex;
     int metallicViewTextureIndex;
     int normalViewTextureIndex;
+};
+
+struct MeshStructuredBuffer
+{
+    XMFLOAT3 centerBound;
+    int useVertexColor;
+
+    XMFLOAT3 extentsBound;
+    int useTangent; //  1 if tangent available, 0 use Mikktspace
+
+    XMMATRIX meshTransform;
 };
 
 struct Vertex   // Test

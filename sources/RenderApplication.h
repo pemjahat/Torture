@@ -102,18 +102,12 @@ private:
     RenderTexture rtBuffer;
     ComPtr<ID3D12RootSignature> rtRootSignature;
     ComPtr<ID3D12StateObject> rtPipelineState;
-    RawBuffer scratchBuffer;
-    RawBuffer blas;
-    RawBuffer tlas;
     StructuredBuffer rtRayGenTable;
     StructuredBuffer rtHitTable;
     StructuredBuffer rtMissTable;
-    StructuredBuffer rtGeomInfo;
-    ComPtr<ID3D12Resource> tempInstanceBuffer;
+    StructuredBuffer rtInstInfo;
 
     typedef UINT16 Index;
-    StructuredBuffer rtVertexBuffer;
-    RawBuffer rtIndexBuffer;
     RaygenConstantBuffer raygenCB;
     ConstantBuffer matCB;
     PrimitiveConstantBuffer planeCB;

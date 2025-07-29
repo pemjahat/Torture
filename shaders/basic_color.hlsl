@@ -116,13 +116,14 @@ PSInput VSMain(VSInput input)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
+    MeshData mesh = meshData[modelConstants.meshIndex];
     MaterialData material = materialData[modelConstants.materialIndex];
     
     //
     // Normal
     //
     float3x3 TBN;
-    if (material.useTangent)
+    if (mesh.useTangent)
     {
         float3 T = normalize(input.tangent.xyz);
         float3 N = normalize(input.normal);
@@ -169,7 +170,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     // Albedo
     //
     float3 albedo = material.baseColorFactor.rgb;
-    if (material.useVertexColor)
+    if (mesh.useVertexColor)
     {
         albedo = input.color.rgb;
     }

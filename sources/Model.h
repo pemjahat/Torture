@@ -67,17 +67,6 @@ struct ModelData
 	bool hasTangent = false;
 };
 
-struct MeshStructuredBuffer
-{
-	DirectX::XMFLOAT3 centerBound;
-	UINT vertexOffset;
-	
-	DirectX::XMFLOAT3 extentsBound;
-	UINT indexOffset;
-
-	DirectX::XMFLOAT4X4 meshTransform;
-};
-
 // Constant must be aligned to 256 bytes
 struct ModelConstants
 {

@@ -14,7 +14,7 @@
     {
         return WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
     }
-    
+        
     float2 BarycentricLerp(in float2 v0, in float2 v1, in float2 v2, in float3 barycentrics)
     {
         return v0 * barycentrics.x + v1 * barycentrics.y + v2 * barycentrics.z;
@@ -141,4 +141,11 @@
     {
         float3 reflectedLightRay = normalize(reflect(incidentLightRay, normal));
         return pow(saturate(dot(reflectedLightRay, normalize(-WorldRayDirection()))), specularPower);
+    }
+    
+    //
+    float QuickRandomFloat(inout uint seed)
+    {
+        seed = (1664525u * seed + 1013904223u);
+        return float(seed & 0x00FFFFFF) / float(0x01000000);
     }

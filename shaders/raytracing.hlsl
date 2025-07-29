@@ -4,8 +4,8 @@
 
     RaytracingAccelerationStructure scene : register(t0);
     ByteAddressBuffer Indices : register(t1);
-    StructuredBuffer<Vertex> Vertices : register(t2);
-    StructuredBuffer<GeometryInfo> GeomInfo : register(t3);
+    StructuredBuffer<MeshVertex> Vertices : register(t2);
+    StructuredBuffer<InstanceInfo> instanceData : register(t3);
     StructuredBuffer<MaterialData> materialData : register(t4);
 
     Texture2D materialTex[] : register(t0, space1); // bindless for material (share desc heap)
@@ -18,29 +18,24 @@
     
     typedef BuiltInTriangleIntersectionAttributes MyAttributes;
 
-    MeshVertex GetHitSurface(in MyAttributes attr, in uint geometryIdx)
+    MeshVertex GetHitSurface(in MyAttributes attr, in uint instanceIdx)
     {
         float3 barycentric = float3(1.f - attr.barycentrics.x - attr.barycentrics.y, attr.barycentrics.x, attr.barycentrics.y);
         
-        GeometryInfo geomInfo = GeomInfo[geometryIdx];
+        InstanceInfo instInfo = instanceData[instanceIdx];
         
         uint primIdx = PrimitiveIndex();  // Prim within geom
-        uint idx0 = Indices[(primIdx * 3) + geomInfo.IdxOffset + 0];
-        uint idx1 = Indices[(primIdx * 3) + geomInfo.IdxOffset + 1];
-        uint idx2 = Indices[(primIdx * 3) + geomInfo.IdxOffset + 2];
         
-        MeshVertex vtx0 = Vertices[idx0 + geomInfo.VtxOffset];
-        MeshVertex vtx1 = Vertices[idx1 + geomInfo.VtxOffset];
-        MeshVertex vtx2 = Vertices[idx2 + geomInfo.VtxOffset];
+        uint indexByteOffset = instInfo.IdxOffsetByBytes + (primIdx * 3) * 4;
+        uint idx0 = Indices.Load(indexByteOffset + 0);
+        uint idx1 = Indices.Load(indexByteOffset + 4);
+        uint idx2 = Indices.Load(indexByteOffset + 8);
+        
+        MeshVertex vtx0 = Vertices[idx0 + instInfo.VtxOffset];
+        MeshVertex vtx1 = Vertices[idx1 + instInfo.VtxOffset];
+        MeshVertex vtx2 = Vertices[idx2 + instInfo.VtxOffset];
         
         return BarycentricLerp(vtx0, vtx1, vtx2, barycentric);
-    }
-    
-    MaterialData GetGeometryMaterial(in uint geometryIdx)
-    {
-        GeometryInfo geomInfo = GeomInfo[geometryIdx];
-        
-        return materialData[geomInfo.MaterialIdx];
     }
     
 // HitGroupIdx = RayContribToHitGroupIndex + GeomIndex * MultiplerGeomContribToHitGroupIndex
@@ -57,9 +52,10 @@
         rayDesc.TMin = 0;
         rayDesc.TMax = 10000;
         
-        uint rayTraceFlag = 0;
-        if (currentRayRecursionDepth >= MAX_ANYHIT_DEPTH)
-            rayTraceFlag = RAY_FLAG_FORCE_OPAQUE;
+        uint rayTraceFlag = RAY_FLAG_FORCE_OPAQUE;
+        //uint rayTraceFlag = 0;
+        //if (currentRayRecursionDepth >= MAX_ANYHIT_DEPTH)
+        //    rayTraceFlag = RAY_FLAG_FORCE_OPAQUE;
         
         RayPayload rayPayload = { float4(0, 0, 0, 0), currentRayRecursionDepth + 1 };
         TraceRay(
@@ -67,7 +63,8 @@
         rayTraceFlag,
         TraceRayParameters::InstanceMask,
         TraceRayParameters::HitGroup::Offset[RayType::Radiance],
-        RayType::Count,
+        //RayType::Count,
+        0,
         TraceRayParameters::MissShader::Offset[RayType::Radiance],
         rayDesc,
         rayPayload);
@@ -88,9 +85,10 @@
         rayDesc.TMin = 0;
         rayDesc.TMax = 10000;
         
-        uint traceRayFlag = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
-        if (currentRayRecursionDepth >= MAX_ANYHIT_DEPTH)
-            rayTraceFlag = RAY_FLAG_FORCE_OPAQUE;
+        uint traceRayFlag = RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+        //uint traceRayFlag = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+        //if (currentRayRecursionDepth >= MAX_ANYHIT_DEPTH)
+        //    traceRayFlag = RAY_FLAG_FORCE_OPAQUE;
         
     // Init value is true since closest hit + any hit is skipped
     // Only if miss called, will set to false
@@ -100,7 +98,8 @@
         traceRayFlag,
         TraceRayParameters::InstanceMask,
         TraceRayParameters::HitGroup::Offset[RayType::Shadow],
-        RayType::Count,
+        //RayType::Count,
+        0,
         TraceRayParameters::MissShader::Offset[RayType::Shadow],
         rayDesc,
         shadowPayload);
@@ -150,14 +149,18 @@
     [shader("closesthit")]
     void MyClosestHitShader(inout RayPayload payload, in MyAttributes attr)
     {
-        const MeshVertex hitSurface = GetHitSurface(attr, GeometryIndex());
-        const MaterialData material = GetGeometryMaterial(GeometryIndex());
+        //uint seed = InstanceIndex();
+        //payload.color = float4(QuickRandomFloat(seed), QuickRandomFloat(seed), QuickRandomFloat(seed), 1.f);
+        
+        const MeshVertex hitSurface = GetHitSurface(attr, InstanceIndex());
+        InstanceInfo instInfo = instanceData[InstanceIndex()];
+        const MaterialData material = materialData[instInfo.MaterialIdx];
 
         // Normal
         float3x3 TBN;
         float3 N = normalize(hitSurface.Normal);
         
-        if (material.useTangent)
+        if (instInfo.UseTangent)
         {
             float3 T = normalize(hitSurface.Tangent.xyz);
             T = normalize(T - dot(T, N) * N); /// Orthogonalize
@@ -169,7 +172,7 @@
         {
             float3 dPdx, dPdy;
             float2 dUVdx, dUVdy;
-            CalculateRayDifferentials(dUVdx, dUVdy, dPdx, dPdy, hitSurface.Uv, hitSurface.Position, N, sceneCB.CamPosition, sceneCB.ProjToWorld);
+            CalculateRayDifferentials(dUVdx, dUVdy, dPdx, dPdy, hitSurface.Uv, hitSurface.Position, N, sceneCB.CamPosition.xyz, sceneCB.ProjToWorld);
             
             // Solve for T and B
             float3 dp2perp = cross(dPdy, N);
@@ -190,7 +193,7 @@
         float3 worldNormal = N;
         if (material.normalViewTextureIndex >= 0)
         {
-            float3 normalMap = materialTex[NonUniformResourceIndex(material.normalViewTextureIndex)].Sample(g_sampler, hitSurface.Uv).rgb;
+            float3 normalMap = materialTex[NonUniformResourceIndex(material.normalViewTextureIndex)].SampleLevel(g_sampler, hitSurface.Uv, 0).rgb;
             normalMap = normalMap * 2.f - 1.f;
             normalMap = normalize(normalMap);
         
@@ -200,14 +203,14 @@
         //
         // Albedo
         //
-        float3 baseColor = material.baseColorFactor.rgb;
-        if (material.useVertexColor)
+        float4 baseColor = material.baseColorFactor;
+        if (instInfo.UseVertexColor)
         {
-            baseColor.rgb = hitSurface.Color.rgb;
+            baseColor = hitSurface.Color;
         }
         else if (material.albedoViewTextureIndex >= 0)
         {
-            baseColor.rgb *= materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].Sample(g_sampler, hitSurface.Uv).rgb;
+            baseColor *= materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].SampleLevel(g_sampler, hitSurface.Uv, 0);
         }
         
         //
@@ -217,7 +220,7 @@
         float roughness = material.roughnessFactor;
         if (material.metallicViewTextureIndex >= 0)
         {
-            float3 matSample = materialTex[NonUniformResourceIndex(material.metallicViewTextureIndex)].Sample(g_sampler, hitSurface.Uv).rgb;
+            float3 matSample = materialTex[NonUniformResourceIndex(material.metallicViewTextureIndex)].SampleLevel(g_sampler, hitSurface.Uv, 0).rgb;
             metallic = matSample.b;
             roughness = matSample.g;
         }
@@ -241,29 +244,33 @@
         payload.color = color;
     }
     
-    [shader("anyhit")]
-    void MyAnyHitShader(inout RayPayload payload, in MyAttributes attr)
-    {
-        const MeshVertex hitSurface = GetHitSurface(attr, GeometryIndex());
-        const MaterialData material = GetGeometryMaterial(GeometryIndex());
+    //[shader("anyhit")]
+    //void MyAnyHitShader(inout RayPayload payload, in MyAttributes attr)
+    //{
+    //    const MeshVertex hitSurface = GetHitSurface(attr, InstanceIndex());
+        
+    //    InstanceInfo instInfo = instanceData[InstanceIndex()];
+    //    const MaterialData material = materialData[instInfo.MaterialIdx];
 
-        // Alpha test
-        float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].Sample(g_sampler, hitSurface.Uv);
-        if (albedoSample.a < material.alphaCutoff)
-            IgnoreHit();
-    }
+    //    // Alpha test
+    //    float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].SampleLevel(g_sampler, hitSurface.Uv, 0);
+    //    if (albedoSample.a < material.alphaCutoff)
+    //        IgnoreHit();
+    //}
     
-    [shader("anyhit")]
-    void MyAnyHitShader_Shadow(inout ShadowRayPayload payload, in MyAttributes attr)
-    {
-        const MeshVertex hitSurface = GetHitSurface(attr, GeometryIndex());
-        const MaterialData material = GetGeometryMaterial(GeometryIndex());
+    //[shader("anyhit")]
+    //void MyAnyHitShader_Shadow(inout ShadowRayPayload payload, in MyAttributes attr)
+    //{
+    //    const MeshVertex hitSurface = GetHitSurface(attr, InstanceIndex());
+        
+    //    InstanceInfo instInfo = instanceData[InstanceIndex()];
+    //    const MaterialData material = materialData[instInfo.MaterialIdx];
 
-        // Alpha test
-        float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].Sample(g_sampler, hitSurface.Uv);
-        if (albedoSample.a < material.alphaCutoff)
-            IgnoreHit();
-    }
+    //    // Alpha test
+    //    float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].SampleLevel(g_sampler, hitSurface.Uv, 0);
+    //    if (albedoSample.a < material.alphaCutoff)
+    //        IgnoreHit();
+    //}
 
     [shader("miss")]
     void MyMissShader(inout RayPayload payload)

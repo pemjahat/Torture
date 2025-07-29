@@ -65,13 +65,14 @@ VSOutput VSMain(VSInput input)
 
 PSOutput PSGBuffer(VSOutput input)
 {
+    MeshData mesh = meshData[modelConstants.meshIndex];
     MaterialData material = materialData[modelConstants.materialIndex];
     
     //
     // Normal
     //
     float3x3 TBN;
-    if (material.useTangent)
+    if (mesh.useTangent)
     {
         float3 T = normalize(input.tangent.xyz);
         float3 N = normalize(input.normal);
@@ -118,7 +119,7 @@ PSOutput PSGBuffer(VSOutput input)
     // Albedo
     //
     float3 albedo = material.baseColorFactor.rgb;
-    if (material.useVertexColor)
+    if (mesh.useVertexColor)
     {
         albedo = input.color.rgb;
     }
@@ -149,13 +150,14 @@ PSOutput PSGBuffer(VSOutput input)
 
 PSOutput PSAlphaTest(VSOutput input)
 {
+    MeshData mesh = meshData[modelConstants.meshIndex];
     MaterialData material = materialData[modelConstants.materialIndex];
     
     //
     // Albedo
     //
     float4 albedo = material.baseColorFactor;
-    if (material.useVertexColor)
+    if (mesh.useVertexColor)
     {
         albedo.rgb = input.color.rgb;
     }
@@ -171,7 +173,7 @@ PSOutput PSAlphaTest(VSOutput input)
     // Normal
     //
     float3x3 TBN;
-    if (material.useTangent)
+    if (mesh.useTangent)
     {
         float3 T = normalize(input.tangent.xyz);
         float3 N = normalize(input.normal);
