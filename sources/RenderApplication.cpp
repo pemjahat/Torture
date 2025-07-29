@@ -314,9 +314,10 @@ void RenderApplication::CreateRTPipelineStateObject()
         const uint32_t numPrimitives = m_model.NumPrimitives();
         uint32_t primitiveIndex = 0;
         std::vector<ShaderIdentifier> hitRecords(2 * numPrimitives);
-        const std::vector<MeshData>& meshes = m_model.Meshes();
-        for (const MeshData& mesh : meshes)
+        const std::vector<NodeData>& nodes = m_model.Nodes();
+        for (const NodeData& node : nodes)
         {
+            const MeshData& mesh = m_model.Meshes()[node.meshIndex];
             for (const PrimitiveData& primitive : mesh.primitives)
             {
                 const MaterialData& material = m_model.Materials()[primitive.materialIndex];
@@ -529,22 +530,22 @@ void RenderApplication::CreateRTGeometryTest()
         //};
 
         // Create vertex buffer
-        StructuredBufferInit sbi;
+       /* StructuredBufferInit sbi;
         sbi.cpuAccessible = true;
         sbi.stride = sizeof(Vertex);
         sbi.numElements = _countof(vertices);
         sbi.initData = vertices;
         sbi.name = L"RaytraceVertexBuffer";
-        rtVertexBuffer.Initialize(sbi);
+        rtVertexBuffer.Initialize(sbi);*/
 
         // Create index buffer
-        RawBufferInit rbi;
-        rbi.numElements = sizeof(indices) / RawBuffer::Stride; // Since index is 16 bits, but raw buffer process in 32 bits
-        rbi.cpuAccessible = true;
-        rbi.allowUAV = false;
-        rbi.initData = indices;
-        rbi.name = L"RaytraceIndexBuffer";
-        rtIndexBuffer.Initialize(rbi);
+        //RawBufferInit rbi;
+        //rbi.numElements = sizeof(indices) / RawBuffer::Stride; // Since index is 16 bits, but raw buffer process in 32 bits
+        //rbi.cpuAccessible = true;
+        //rbi.allowUAV = false;
+        //rbi.initData = indices;
+        //rbi.name = L"RaytraceIndexBuffer";
+        //rtIndexBuffer.Initialize(rbi);
     }
 }
 

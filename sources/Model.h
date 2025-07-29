@@ -45,26 +45,40 @@ struct SamplerData
 	D3D12_GPU_DESCRIPTOR_HANDLE samplerGpuHandle;
 };
 
-struct MeshData
+struct PrimitiveData
 {
 	std::vector<MeshVertex> vertices;
 	std::vector<uint32_t> indices;
-	int materialIndex = -1;
 	uint64_t vertexOffset = 0;
 	uint64_t indexOffset = 0;
-	DirectX::XMFLOAT4X4 transform;	// Node hierarchy transform
+	bool hasVertexColor = false;
+	bool hasTangent = false;
+	int materialIndex = -1;
 	DirectX::BoundingBox boundingBox;
+};
+
+struct MeshData
+{
+	std::vector<PrimitiveData> primitives;
+};
+
+struct NodeData
+{	
+	int meshIndex = -1;
+	DirectX::XMMATRIX transform;	// Node hierarchy transform
 };
 
 struct ModelData
 {
+	std::vector<NodeData> nodes;
 	std::vector<MeshData> meshes;
 	std::vector<SamplerData> samplers;
 	std::vector<MaterialData> materials;
 	std::vector<TextureView> textures;
 	std::vector<TextureResource> images;
-	bool hasVertexColor = false;
-	bool hasTangent = false;
+
+	uint32_t numPrimitives;
+	uint32_t numInstances;
 };
 
 // Constant must be aligned to 256 bytes
@@ -81,6 +95,10 @@ struct MeshResources
 	
 	std::vector<MeshVertex> vertices;	// Combine vertices (blas)
 	std::vector<uint32_t> indices;		// Combine indices
+
+	RawBuffer scratchBuffer;
+	RawBuffer tlasBuffer;
+	RawBuffer instanceBuffer;
 };
 
 class Model
@@ -94,6 +112,7 @@ public:
 
 	HRESULT LoadFromFile(const std::string& filePath);
 	HRESULT UploadGpuResources();
+	void BuildAccelerationStructure();
 
 	HRESULT RenderDepthOnly(
 		const ConstantBuffer* sceneCB,
@@ -111,13 +130,15 @@ public:
 	const StructuredBuffer& GetVertexBuffer() const { return meshResource.vertexBuffer; }
 	const FormattedBuffer& GetIndexBuffer() const { return meshResource.indexBuffer; }
 
-	uint32_t NumMeshes() const { return m_model.meshes.size(); }
+	uint32_t NumPrimitives() const { return m_model.numPrimitives; }
+	uint32_t NumInstances() const { return m_model.numInstances; }
+	const std::vector<NodeData>& Nodes() const { return m_model.nodes; }
 	const std::vector<MeshData>& Meshes() const { return m_model.meshes; }
 	const std::vector<MaterialData>& Materials() const { return m_model.materials; }
 
 	const StructuredBuffer& MeshBuffer() const { return m_meshSB; }
 	const StructuredBuffer& MaterialBuffer() const { return m_materialSB; }
-
+	const MeshResources& MeshResource() const { return meshResource; }
 private:
 	// Helper
 	D3D12_FILTER GetD3D12Filter(int magFilter, int minFilter);
