@@ -234,15 +234,15 @@ void RenderApplication::CreateRTPipelineStateObject()
         hitDesc.HitGroupExport = L"MyHitGroup_Radiance";
         builder.AddSubObject(hitDesc);
     }
-    //{
-    //    // Alpha test
-    //    D3D12_HIT_GROUP_DESC hitDesc = {};
-    //    hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
-    //    hitDesc.ClosestHitShaderImport = L"MyClosestHitShader";
-    //    hitDesc.AnyHitShaderImport = L"MyAnyHitShader";
-    //    hitDesc.HitGroupExport = L"MyHitGroup_AlphaTest";
-    //    builder.AddSubObject(hitDesc);
-    //}
+    {
+        // Alpha test
+        D3D12_HIT_GROUP_DESC hitDesc = {};
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hitDesc.ClosestHitShaderImport = L"MyClosestHitShader";
+        hitDesc.AnyHitShaderImport = L"MyAnyHitShader";
+        hitDesc.HitGroupExport = L"MyHitGroup_AlphaTest";
+        builder.AddSubObject(hitDesc);
+    }
     {
         // Closest hit (Shadow)
         D3D12_HIT_GROUP_DESC hitDesc = {};
@@ -250,14 +250,14 @@ void RenderApplication::CreateRTPipelineStateObject()
         hitDesc.HitGroupExport = L"MyHitGroup_Shadow";
         builder.AddSubObject(hitDesc);
     }
-    //{
-    //    // Alpha test (shadow)
-    //    D3D12_HIT_GROUP_DESC hitDesc = {};
-    //    hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
-    //    hitDesc.AnyHitShaderImport = L"MyAnyHitShader_Shadow";
-    //    hitDesc.HitGroupExport = L"MyHitGroup_AlphaTestShadow";
-    //    builder.AddSubObject(hitDesc);
-    //}
+    {
+        // Alpha test (shadow)
+        D3D12_HIT_GROUP_DESC hitDesc = {};
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hitDesc.AnyHitShaderImport = L"MyAnyHitShader_Shadow";
+        hitDesc.HitGroupExport = L"MyHitGroup_AlphaTestShadow";
+        builder.AddSubObject(hitDesc);
+    }
     {
         D3D12_RAYTRACING_SHADER_CONFIG shaderConfig = {};
         UINT payloadSize = std::max(sizeof(RayPayload), sizeof(ShadowRayPayload));
@@ -286,9 +286,9 @@ void RenderApplication::CreateRTPipelineStateObject()
     const void* missID = psoProps->GetShaderIdentifier(L"MyMissShader");
     const void* shadowMissID = psoProps->GetShaderIdentifier(L"MyMissShader_Shadow");
     const void* hitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_Radiance");
-    //const void* alphaTestHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_AlphaTest");
+    const void* alphaTestHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_AlphaTest");
     const void* shadowHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_Shadow");
-    //const void* shadowAlphaTestHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_AlphaTestShadow");
+    const void* shadowAlphaTestHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_AlphaTestShadow");
     // Shader tables
     {
         ShaderIdentifier raygenRecords[1] = { ShaderIdentifier(raygenID) };
@@ -322,10 +322,8 @@ void RenderApplication::CreateRTPipelineStateObject()
                 const MaterialData& material = m_model.Materials()[primitive.materialIndex];
                 const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
 
-                /*hitRecords[primitiveIndex * 2 + 0] = nonOpaque ? ShaderIdentifier(alphaTestHitgroupID) : ShaderIdentifier(hitgroupID);
-                hitRecords[primitiveIndex * 2 + 1] = nonOpaque ? ShaderIdentifier(shadowAlphaTestHitgroupID) : ShaderIdentifier(shadowHitgroupID);*/
-                hitRecords[primitiveIndex * 2 + 0] = ShaderIdentifier(hitgroupID);
-                hitRecords[primitiveIndex * 2 + 1] = ShaderIdentifier(shadowHitgroupID);
+                hitRecords[primitiveIndex * 2 + 0] = nonOpaque ? ShaderIdentifier(alphaTestHitgroupID) : ShaderIdentifier(hitgroupID);
+                hitRecords[primitiveIndex * 2 + 1] = nonOpaque ? ShaderIdentifier(shadowAlphaTestHitgroupID) : ShaderIdentifier(shadowHitgroupID);
                 primitiveIndex++;
             }
         }
@@ -336,250 +334,15 @@ void RenderApplication::CreateRTPipelineStateObject()
         sbInit.initData = hitRecords.data();
         sbInit.name = L"Hit Shader Table";
         rtHitTable.Initialize(sbInit);
-
-        //ShaderIdentifier hitRecords[2] = { ShaderIdentifier(hitgroupID), ShaderIdentifier(shadowHitgroupID)};
     }
 
     psoProps->Release();
     psoProps = nullptr;
 }
 
-void RenderApplication::CreateRTGeometryTest()
-{
-    // Plane material
-    //XMFLOAT4 albedo;
-    //float reflectionCoeff;
-    //float diffuseCoeff;
-    //float specularCoeff;
-    //float specularPower;
-    planeCB = { XMFLOAT4(0.9f, 0.9f, 0.9f, 1.f), 0.25f, 1, 0.4f, 50 };
-
-    // Plane geometry
-    {
-        Index indices[] =
-        {
-            3,1,0,
-            2,1,3,
-
-        };
-
-        // Cube vertices positions and corresponding triangle normals.
-        Vertex vertices[] =
-        {
-            { XMFLOAT3(-10.0f, 0.0f, -10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(10.0f, 0.0f, -10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(10.0f, 0.0f, 10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(-10.0f, 0.0f, 10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-        };
-
-        //Index indices[] =
-        //{
-        //    0, 2, 1,
-        //    3, 1, 2,
-        //};
-
-        //// Cube vertices positions and corresponding triangle normals.
-        //Vertex vertices[] =
-        //{
-        //    { XMFLOAT3(-10.0f, 0.0f, -10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) }, // Bottom left
-        //    { XMFLOAT3(10.0f, 0.0f, -10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },  // Bottom right
-        //    { XMFLOAT3(-10.0f, 0.0f, 10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },  // Top left
-        //    { XMFLOAT3(10.0f, 0.0f, 10.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },   // Top right
-        //};
-
-        // Create vertex buffer
-        StructuredBufferInit sbi;
-        sbi.cpuAccessible = true;
-        sbi.stride = sizeof(Vertex);
-        sbi.numElements = _countof(vertices);
-        sbi.initData = vertices;
-        sbi.name = L"PlaneVertexBuffer";
-        planeVertexBuffer.Initialize(sbi);
-
-        // Create index buffer
-        RawBufferInit rbi;
-        rbi.numElements = sizeof(indices) / RawBuffer::Stride; // Since index is 16 bits, but raw buffer process in 32 bits
-        rbi.cpuAccessible = true;
-        rbi.allowUAV = false;
-        rbi.initData = indices;
-        rbi.name = L"PlaneIndexBuffer";
-        planeIndexBuffer.Initialize(rbi);
-    }
-
-    // Cube geometry
-    {
-        // Cube indices.
-        Index indices[] =
-        {
-            3,1,0,
-            2,1,3,
-
-            6,4,5,
-            7,4,6,
-
-            11,9,8,
-            10,9,11,
-
-            14,12,13,
-            15,12,14,
-
-            19,17,16,
-            18,17,19,
-
-            22,20,21,
-            23,20,22
-        };
-
-        // Cube vertices positions and corresponding triangle normals.
-        Vertex vertices[] =
-        {
-            // Top
-            { XMFLOAT3(-1.0f, 3.0f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(1.0f, 3.0f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(1.0f, 3.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, 3.0f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },
-            // Bottom
-            { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
-            { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
-            { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },
-
-            { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, 3.0f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(-1.0f, 3.0f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },
-
-            { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(1.0f, 3.0f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
-            { XMFLOAT3(1.0f, 3.0f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },
-
-            { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
-            { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
-            { XMFLOAT3(1.0f, 3.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
-            { XMFLOAT3(-1.0f, 3.0f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },
-
-            { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
-            { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
-            { XMFLOAT3(1.0f, 3.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
-            { XMFLOAT3(-1.0f, 3.0f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },
-        };
-
-        //// Cube indices.
-        //Index indices[] =
-        //{
-        //    // Front face
-        //    0, 2, 1,
-        //    3, 1, 2,
-        //    // Back face
-        //    5, 6, 4,
-        //    7, 6, 5,
-        //    // Left face
-        //    8, 10, 9,
-        //    10, 11, 9,
-        //    // Right face
-        //    12, 14, 13,
-        //    15, 14, 12,
-        //    // Top Face
-        //    16, 17, 19,
-        //    19, 18, 16,
-        //    // Bottom face
-        //    20, 21, 23,
-        //    21, 20, 23
-        //};
-
-        //// Cube vertices positions and corresponding triangle normals.
-        //Vertex vertices[] =
-        //{
-        //    // Front face
-        //    { XMFLOAT3(-1.0f, 0.f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) }, // Bottom left
-        //    { XMFLOAT3(1.0f, 0.f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },  // Bottom right
-        //    { XMFLOAT3(-1.0f, 2.f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) }, // Top left
-        //    { XMFLOAT3(1.0f, 2.f, 1.0f), XMFLOAT3(0.0f, 0.0f, 1.0f) },  // Top right
-
-        //    // Back face
-        //    { XMFLOAT3(1.0f, 0.f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },    // Bottom right
-        //    { XMFLOAT3(-1.0f, 0.f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },   // Bottom left
-        //    { XMFLOAT3(1.0f, 2.f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },    // top right
-        //    { XMFLOAT3(-1.0f, 2.f, -1.0f), XMFLOAT3(0.0f, 0.0f, -1.0f) },   // top left
-
-        //    // Left face
-        //    { XMFLOAT3(-1.0f, 0.f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },   // Bottom back
-        //    { XMFLOAT3(-1.0f, 0.f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },  // Bottom front
-        //    { XMFLOAT3(-1.0f, 2.f, -1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },   // Top back
-        //    { XMFLOAT3(-1.0f, 2.f, 1.0f), XMFLOAT3(-1.0f, 0.0f, 0.0f) },    // Top front
-
-        //    // Right face
-        //    { XMFLOAT3(1.0f, 0.f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },     // Bottom front
-        //    { XMFLOAT3(1.0f, 0.f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },    // Bottom back
-        //    { XMFLOAT3(1.0f, 2.f, 1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },     // Top front
-        //    { XMFLOAT3(1.0f, 2.f, -1.0f), XMFLOAT3(1.0f, 0.0f, 0.0f) },    // Top back
-
-        //    // Top face
-        //    { XMFLOAT3(-1.0f, 2.f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) }, // Back left
-        //    { XMFLOAT3(1.0f, 2.f, -1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) }, // Back right
-        //    { XMFLOAT3(-1.0f, 2.f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) },  // Front left
-        //    { XMFLOAT3(1.0f, 2.f, 1.0f), XMFLOAT3(0.0f, 1.0f, 0.0f) }, // Front right
-
-        //    // Bottom face
-        //    { XMFLOAT3(-1.0f, 0.f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },  // Front left
-        //    { XMFLOAT3(1.0f, 0.f, 1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },   // Front right
-        //    { XMFLOAT3(-1.0f, 0.f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },    // Back left
-        //    { XMFLOAT3(1.0f, 0.f, -1.0f), XMFLOAT3(0.0f, -1.0f, 0.0f) },   // Back right
-        //};
-
-        // Create vertex buffer
-       /* StructuredBufferInit sbi;
-        sbi.cpuAccessible = true;
-        sbi.stride = sizeof(Vertex);
-        sbi.numElements = _countof(vertices);
-        sbi.initData = vertices;
-        sbi.name = L"RaytraceVertexBuffer";
-        rtVertexBuffer.Initialize(sbi);*/
-
-        // Create index buffer
-        //RawBufferInit rbi;
-        //rbi.numElements = sizeof(indices) / RawBuffer::Stride; // Since index is 16 bits, but raw buffer process in 32 bits
-        //rbi.cpuAccessible = true;
-        //rbi.allowUAV = false;
-        //rbi.initData = indices;
-        //rbi.name = L"RaytraceIndexBuffer";
-        //rtIndexBuffer.Initialize(rbi);
-    }
-}
-
 void RenderApplication::CreateRTAccelerationStructure()
 {
     m_model.BuildAccelerationStructure();
-
-    // Build instance info
-    uint32_t numInstances = m_model.NumInstances();
-    const std::vector<NodeData>& nodes = m_model.Nodes();
-    
-    std::vector<InstanceInfo> instanceInfo(numInstances);
-    uint32_t instanceIndex = 0;
-    for (const NodeData& node : nodes)
-    {
-        const MeshData& mesh = m_model.Meshes()[node.meshIndex];
-        for (const PrimitiveData& primitive : mesh.primitives)
-        {
-            InstanceInfo& instInfo = instanceInfo[instanceIndex];
-            instInfo = {};
-            instInfo.VtxOffset = primitive.vertexOffset;
-            instInfo.IdxOffsetByBytes = primitive.indexOffset * sizeof(uint32_t);
-            instInfo.MaterialIdx = primitive.materialIndex;
-            instInfo.UseTangent = primitive.hasTangent ? 1 : 0;
-            instInfo.UseVertexColor = primitive.hasVertexColor ? 1 : 0;
-            instanceIndex++;
-        }
-    }
-
-    StructuredBufferInit sbi;
-    sbi.stride = sizeof(InstanceInfo);
-    sbi.numElements = numInstances;
-    sbi.initData = instanceInfo.data();
-    sbi.name = L"Instance info buffer";
-    rtInstInfo.Initialize(sbi);
 }
 
 void RenderApplication::LoadPipeline()
@@ -935,15 +698,6 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         m_lightCB.Initialize(cbi);
     }
 
-    // Constant buffer for primitive
-    {
-        ConstantBufferInit cbi;
-        cbi.size = sizeof(PrimitiveConstantBuffer);
-        cbi.cpuAccessible = true;
-        cbi.name = L"PrimitiveConstantBuffer";
-        matCB.Initialize(cbi);
-    }
-
     // Model
     //std::wstring gltfPath = GetAssetFullPath("content/Box With Spaces.gltf");
     //std::wstring gltfPath = GetAssetFullPath("content/BoxVertexColors.gltf");
@@ -959,7 +713,6 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     //m_model.LoadShader(shaderPath);
     //m_model.CreatePSO();
     m_model.UploadGpuResources();
-    CreateRTGeometryTest();
     CreateRT();
     CreateRTPipelineStateObject();
     CreateRTAccelerationStructure();
@@ -1039,8 +792,6 @@ void RenderApplication::OnUpdate()
     m_directionalLight.ambient = XMLoadFloat4(&lightAmbientColor);
 
     m_lightCB.MapAndSetData(&m_directionalLight, sizeof(LightData));
-
-    matCB.MapAndSetData(&planeCB, sizeof(PrimitiveConstantBuffer));
 }
 
 void RenderApplication::OnRender()
@@ -1242,7 +993,7 @@ void RenderApplication::RenderRaytracing()
     commandList->SetComputeRootShaderResourceView(0, meshResource.tlasBuffer.internalBuffer.gpuAddress);
     commandList->SetComputeRootShaderResourceView(1, meshResource.indexBuffer.internalBuffer.gpuAddress);
     commandList->SetComputeRootShaderResourceView(2, meshResource.vertexBuffer.internalBuffer.gpuAddress);
-    commandList->SetComputeRootShaderResourceView(3, rtInstInfo.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(3, meshResource.instanceInfoBuffer.internalBuffer.gpuAddress);
     commandList->SetComputeRootShaderResourceView(4, materialBuffer.internalBuffer.gpuAddress);
 
     SrvSetAsComputeRootParameter(commandList.Get(), 5);

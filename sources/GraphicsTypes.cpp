@@ -271,7 +271,7 @@ void StructuredBuffer::Initialize(const StructuredBufferInit& init)
 	Stride = init.stride;
 	NumElements = init.numElements;
 
-	internalBuffer.Initialize(Stride * NumElements, Stride, false, false, init.initData, init.initState, init.name);
+	internalBuffer.Initialize(Stride * NumElements, Stride, init.cpuAccessible, false, init.initData, init.initState, init.name);
 
 	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
 	SRV = srvAlloc.descriptorIndex;

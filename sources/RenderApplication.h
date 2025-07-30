@@ -105,14 +105,9 @@ private:
     StructuredBuffer rtRayGenTable;
     StructuredBuffer rtHitTable;
     StructuredBuffer rtMissTable;
-    StructuredBuffer rtInstInfo;
 
     typedef UINT16 Index;
     RaygenConstantBuffer raygenCB;
-    ConstantBuffer matCB;
-    PrimitiveConstantBuffer planeCB;
-    StructuredBuffer planeVertexBuffer;
-    RawBuffer planeIndexBuffer;
 
     // Synchronization
     UINT m_frameIndex;
@@ -147,7 +142,6 @@ private:
     // Raytrace
     void CreateRT();
     void CreateRTPipelineStateObject();
-    void CreateRTGeometryTest();
     void CreateRTAccelerationStructure();
     
     void LoadPipeline();

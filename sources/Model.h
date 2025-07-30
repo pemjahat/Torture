@@ -93,14 +93,15 @@ struct MeshResources
 {
 	StructuredBuffer vertexBuffer;
 	FormattedBuffer indexBuffer;
-	
+	StructuredBuffer instanceInfoBuffer;	// Raytrace use to retrieve vertices
+
 	std::vector<MeshVertex> vertices;	// Combine vertices (blas)
 	std::vector<uint32_t> indices;		// Combine indices
 
 	RawBuffer tlasScratchBuffer;
 	RawBuffer blasScratchBuffer;
 	RawBuffer tlasBuffer;
-	ComPtr<ID3D12Resource> instanceBuffer;
+	RawBuffer instanceBuffer;
 };
 
 class Model

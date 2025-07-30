@@ -52,8 +52,7 @@
         rayDesc.TMin = 0;
         rayDesc.TMax = 10000;
         
-        uint rayTraceFlag = RAY_FLAG_FORCE_OPAQUE;
-        //uint rayTraceFlag = 0;
+        uint rayTraceFlag = 0;
         //if (currentRayRecursionDepth >= MAX_ANYHIT_DEPTH)
         //    rayTraceFlag = RAY_FLAG_FORCE_OPAQUE;
         
@@ -63,8 +62,7 @@
         rayTraceFlag,
         TraceRayParameters::InstanceMask,
         TraceRayParameters::HitGroup::Offset[RayType::Radiance],
-        //RayType::Count,
-        0,
+        RayType::Count,
         TraceRayParameters::MissShader::Offset[RayType::Radiance],
         rayDesc,
         rayPayload);
@@ -85,8 +83,8 @@
         rayDesc.TMin = 0;
         rayDesc.TMax = 10000;
         
-        uint traceRayFlag = RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
-        //uint traceRayFlag = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+        //uint traceRayFlag = RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+        uint traceRayFlag = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
         //if (currentRayRecursionDepth >= MAX_ANYHIT_DEPTH)
         //    traceRayFlag = RAY_FLAG_FORCE_OPAQUE;
         
@@ -98,8 +96,7 @@
         traceRayFlag,
         TraceRayParameters::InstanceMask,
         TraceRayParameters::HitGroup::Offset[RayType::Shadow],
-        //RayType::Count,
-        0,
+        RayType::Count,
         TraceRayParameters::MissShader::Offset[RayType::Shadow],
         rayDesc,
         shadowPayload);
@@ -244,33 +241,33 @@
         payload.color = color;
     }
     
-    //[shader("anyhit")]
-    //void MyAnyHitShader(inout RayPayload payload, in MyAttributes attr)
-    //{
-    //    const MeshVertex hitSurface = GetHitSurface(attr, InstanceIndex());
+    [shader("anyhit")]
+    void MyAnyHitShader(inout RayPayload payload, in MyAttributes attr)
+    {
+        const MeshVertex hitSurface = GetHitSurface(attr, InstanceIndex());
         
-    //    InstanceInfo instInfo = instanceData[InstanceIndex()];
-    //    const MaterialData material = materialData[instInfo.MaterialIdx];
+        InstanceInfo instInfo = instanceData[InstanceIndex()];
+        const MaterialData material = materialData[instInfo.MaterialIdx];
 
-    //    // Alpha test
-    //    float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].SampleLevel(g_sampler, hitSurface.Uv, 0);
-    //    if (albedoSample.a < material.alphaCutoff)
-    //        IgnoreHit();
-    //}
+        // Alpha test
+        float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].SampleLevel(g_sampler, hitSurface.Uv, 0);
+        if (albedoSample.a < material.alphaCutoff)
+            IgnoreHit();
+    }
     
-    //[shader("anyhit")]
-    //void MyAnyHitShader_Shadow(inout ShadowRayPayload payload, in MyAttributes attr)
-    //{
-    //    const MeshVertex hitSurface = GetHitSurface(attr, InstanceIndex());
+    [shader("anyhit")]
+    void MyAnyHitShader_Shadow(inout ShadowRayPayload payload, in MyAttributes attr)
+    {
+        const MeshVertex hitSurface = GetHitSurface(attr, InstanceIndex());
         
-    //    InstanceInfo instInfo = instanceData[InstanceIndex()];
-    //    const MaterialData material = materialData[instInfo.MaterialIdx];
+        InstanceInfo instInfo = instanceData[InstanceIndex()];
+        const MaterialData material = materialData[instInfo.MaterialIdx];
 
-    //    // Alpha test
-    //    float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].SampleLevel(g_sampler, hitSurface.Uv, 0);
-    //    if (albedoSample.a < material.alphaCutoff)
-    //        IgnoreHit();
-    //}
+        // Alpha test
+        float4 albedoSample = materialTex[NonUniformResourceIndex(material.albedoViewTextureIndex)].SampleLevel(g_sampler, hitSurface.Uv, 0);
+        if (albedoSample.a < material.alphaCutoff)
+            IgnoreHit();
+    }
 
     [shader("miss")]
     void MyMissShader(inout RayPayload payload)

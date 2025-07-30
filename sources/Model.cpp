@@ -961,18 +961,12 @@ void Model::BuildAccelerationStructure()
         }
     }
 
-    CheckHRESULT(d3dDevice->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(instanceDescs.size() * sizeof(D3D12_RAYTRACING_INSTANCE_DESC)),
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&meshResource.instanceBuffer)));
-
-    void* cpuMapped;
-    meshResource.instanceBuffer->Map(0, nullptr, &cpuMapped);
-    memcpy(cpuMapped, instanceDescs.data(), instanceDescs.size() * sizeof(D3D12_RAYTRACING_INSTANCE_DESC));
-    meshResource.instanceBuffer->Unmap(0, nullptr);
+    RawBufferInit rbi;
+    rbi.numElements = (instanceDescs.size() * sizeof(D3D12_RAYTRACING_INSTANCE_DESC)) / RawBuffer::Stride;
+    rbi.cpuAccessible = true;
+    rbi.initData = instanceDescs.data();
+    rbi.name = L"RT InstanceDesc";
+    meshResource.instanceBuffer.Initialize(rbi);
 
     // Build tlas scratch buffer
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo = {};
@@ -980,7 +974,8 @@ void Model::BuildAccelerationStructure()
     input.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
     input.Flags = buildFlags;
     input.NumDescs = instanceDescs.size();
-    input.InstanceDescs = meshResource.instanceBuffer->GetGPUVirtualAddress();
+    //input.InstanceDescs = meshResource.instanceBuffer->GetGPUVirtualAddress();
+    input.InstanceDescs = meshResource.instanceBuffer.internalBuffer.gpuAddress;
     d3dDevice->GetRaytracingAccelerationStructurePrebuildInfo(&input, &prebuildInfo);
     assert(prebuildInfo.ResultDataMaxSizeInBytes > 0);
     {
@@ -1009,31 +1004,31 @@ void Model::BuildAccelerationStructure()
     commandList->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
     meshResource.tlasBuffer.internalBuffer.UAVBarrier(commandList.Get());
 
-    //// Build instance info buffer
-    //std::vector<InstanceInfo> instanceInfo(numInstances);
-    //instanceIndex = 0;
-    //for (const NodeData& node : m_model.nodes)
-    //{
-    //    const MeshData& mesh = m_model.meshes[node.meshIndex];
-    //    for (const PrimitiveData& primitive : mesh.primitives)
-    //    {
-    //        InstanceInfo& instInfo = instanceInfo[instanceIndex];
-    //        instInfo = {};
-    //        instInfo.VtxOffset = primitive.vertexOffset;
-    //        instInfo.IdxOffsetByBytes = primitive.indexOffset * sizeof(uint32_t);
-    //        instInfo.MaterialIdx = primitive.materialIndex;
-    //        instInfo.UseTangent = primitive.hasTangent ? 1 : 0;
-    //        instInfo.UseVertexColor = primitive.hasVertexColor ? 1 : 0;
-    //        instanceIndex++;
-    //    }
-    //}
+    // Build instance info buffer
+    std::vector<InstanceInfo> instanceInfo(numInstances);
+    instanceIndex = 0;
+    for (const NodeData& node : m_model.nodes)
+    {
+        const MeshData& mesh = m_model.meshes[node.meshIndex];
+        for (const PrimitiveData& primitive : mesh.primitives)
+        {
+            InstanceInfo& instInfo = instanceInfo[instanceIndex];
+            instInfo = {};
+            instInfo.VtxOffset = primitive.vertexOffset;
+            instInfo.IdxOffsetByBytes = primitive.indexOffset * sizeof(uint32_t);
+            instInfo.MaterialIdx = primitive.materialIndex;
+            instInfo.UseTangent = primitive.hasTangent ? 1 : 0;
+            instInfo.UseVertexColor = primitive.hasVertexColor ? 1 : 0;
+            instanceIndex++;
+        }
+    }
 
-    //StructuredBufferInit sbi;
-    //sbi.stride = sizeof(InstanceInfo);
-    //sbi.numElements = instanceInfo.size();
-    //sbi.initData = instanceInfo.data();
-    //sbi.name = L"Instance info buffer";
-    //meshResource.instanceBuffer.Initialize(sbi);
+    StructuredBufferInit sbi;
+    sbi.stride = sizeof(InstanceInfo);
+    sbi.numElements = instanceInfo.size();
+    sbi.initData = instanceInfo.data();
+    sbi.name = L"Instance info buffer";
+    meshResource.instanceInfoBuffer.Initialize(sbi);
 }
 
 
