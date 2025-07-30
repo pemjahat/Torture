@@ -55,6 +55,7 @@ struct PrimitiveData
 	bool hasTangent = false;
 	int materialIndex = -1;
 	DirectX::BoundingBox boundingBox;
+	RawBuffer blasBuffer;
 };
 
 struct MeshData
@@ -96,9 +97,10 @@ struct MeshResources
 	std::vector<MeshVertex> vertices;	// Combine vertices (blas)
 	std::vector<uint32_t> indices;		// Combine indices
 
-	RawBuffer scratchBuffer;
+	RawBuffer tlasScratchBuffer;
+	RawBuffer blasScratchBuffer;
 	RawBuffer tlasBuffer;
-	RawBuffer instanceBuffer;
+	ComPtr<ID3D12Resource> instanceBuffer;
 };
 
 class Model

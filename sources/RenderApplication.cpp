@@ -314,10 +314,9 @@ void RenderApplication::CreateRTPipelineStateObject()
         const uint32_t numPrimitives = m_model.NumPrimitives();
         uint32_t primitiveIndex = 0;
         std::vector<ShaderIdentifier> hitRecords(2 * numPrimitives);
-        const std::vector<NodeData>& nodes = m_model.Nodes();
-        for (const NodeData& node : nodes)
+        const std::vector<MeshData>& meshes = m_model.Meshes();
+        for (const MeshData& mesh : meshes)
         {
-            const MeshData& mesh = m_model.Meshes()[node.meshIndex];
             for (const PrimitiveData& primitive : mesh.primitives)
             {
                 const MaterialData& material = m_model.Materials()[primitive.materialIndex];

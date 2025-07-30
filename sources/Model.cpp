@@ -154,6 +154,8 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
         NodeData nodeData;
         nodeData.meshIndex = node.mesh;
         nodeData.transform = nodeTransform;
+
+        modelData.numInstances += model.meshes[node.mesh].primitives.size();
         modelData.nodes.push_back(std::move(nodeData));
     }
 
@@ -304,6 +306,7 @@ void ProcessMesh(const tinygltf::Model& model, ModelData& modelData)
             }
 
             // Get material index
+            modelData.numPrimitives += 1;
             primitiveData.materialIndex = primitive.material;
             meshData.primitives.push_back(std::move(primitiveData));
         }
@@ -373,6 +376,8 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
     if (!ret) { return E_FAIL; }
 
     // Clear data
+    m_model.numPrimitives = 0;
+    m_model.numInstances = 0;
     m_model.nodes.clear();
     m_model.meshes.clear();
     //m_model.textures.clear();
@@ -728,7 +733,6 @@ HRESULT Model::UploadGpuResources()
     sbi.stride = sizeof(MeshVertex);
     sbi.numElements = numVertices;
     sbi.initData = meshResource.vertices.data();
-    sbi.initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
     sbi.name = L"ModelVertexBuffer";
     meshResource.vertexBuffer.Initialize(sbi);
 
@@ -737,7 +741,6 @@ HRESULT Model::UploadGpuResources()
     fbi.bitSize = 32;
     fbi.numElements = numIndices;
     fbi.initData = meshResource.indices.data();
-    fbi.initState = D3D12_RESOURCE_STATE_INDEX_BUFFER;
     fbi.name = L"ModelIndexBuffer";
     meshResource.indexBuffer.Initialize(fbi);
 
@@ -848,8 +851,191 @@ HRESULT Model::UploadGpuResources()
 
 void Model::BuildAccelerationStructure()
 {
+    // Blas generate from Primitives
+    // Tlas generate from Instances
+    uint32_t numPrimitives = m_model.numPrimitives;
+    uint32_t numInstances = m_model.numInstances;
+    uint64_t ResultDataMaxSizeInBytes = 0;
 
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS buildFlags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+
+    std::vector<D3D12_RAYTRACING_GEOMETRY_DESC> geometryDescs(numPrimitives);
+    uint32_t primitiveIdx = 0;
+    for (const MeshData& mesh : m_model.meshes)
+    {
+        for (const PrimitiveData& primitive : mesh.primitives)
+        {
+            const MaterialData& material = m_model.materials[primitive.materialIndex];
+            const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
+
+            D3D12_RAYTRACING_GEOMETRY_DESC& geomDesc = geometryDescs[primitiveIdx];
+            geomDesc = {};
+            geomDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+            geomDesc.Triangles.IndexBuffer = meshResource.indexBuffer.internalBuffer.gpuAddress + primitive.indexOffset * meshResource.indexBuffer.Stride;
+            geomDesc.Triangles.IndexCount = primitive.indices.size();
+            geomDesc.Triangles.IndexFormat = meshResource.indexBuffer.format;
+            geomDesc.Triangles.Transform3x4 = 0;
+            geomDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+            geomDesc.Triangles.VertexCount = primitive.vertices.size();
+            geomDesc.Triangles.VertexBuffer.StartAddress = meshResource.vertexBuffer.internalBuffer.gpuAddress + primitive.vertexOffset * meshResource.vertexBuffer.Stride;
+            geomDesc.Triangles.VertexBuffer.StrideInBytes = meshResource.vertexBuffer.Stride;
+            geomDesc.Flags = nonOpaque ? D3D12_RAYTRACING_GEOMETRY_FLAG_NONE : D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+            
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS input = {};
+            input.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+            input.Flags = buildFlags;
+            input.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+            input.pGeometryDescs = &geomDesc;
+            input.NumDescs = 1;
+
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo = {};
+            d3dDevice->GetRaytracingAccelerationStructurePrebuildInfo(&input, &prebuildInfo);
+            assert(prebuildInfo.ResultDataMaxSizeInBytes > 0);
+            ResultDataMaxSizeInBytes = std::max(ResultDataMaxSizeInBytes, prebuildInfo.ResultDataMaxSizeInBytes);
+            primitiveIdx++;
+        }
+    }
+
+    // Blas scratch buffer
+    {
+        RawBufferInit rbi;
+        rbi.numElements = ResultDataMaxSizeInBytes / RawBuffer::Stride;
+        rbi.allowUAV = true;
+        rbi.initState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        rbi.name = L"RT Blas ScratchBuffer";
+        meshResource.blasScratchBuffer.Initialize(rbi);
+    }
+
+    // Build blas
+    primitiveIdx = 0;
+    for (MeshData& mesh : m_model.meshes)
+    {
+        for (PrimitiveData& primitive : mesh.primitives)
+        {
+            D3D12_RAYTRACING_GEOMETRY_DESC& geomDesc = geometryDescs[primitiveIdx];
+
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS input = {};
+            input.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+            input.Flags = buildFlags;
+            input.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+            input.pGeometryDescs = &geomDesc;
+            input.NumDescs = 1;
+
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo = {};
+            d3dDevice->GetRaytracingAccelerationStructurePrebuildInfo(&input, &prebuildInfo);
+            assert(prebuildInfo.ResultDataMaxSizeInBytes > 0);
+
+            RawBufferInit rbi;
+            rbi.numElements = prebuildInfo.ResultDataMaxSizeInBytes / RawBuffer::Stride;
+            rbi.allowUAV = true;
+            rbi.initState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+            rbi.name = L"RT Bot Level Acceleration Structure";
+            primitive.blasBuffer.Initialize(rbi);
+
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC blasDesc = {};
+            blasDesc.Inputs = input;
+            blasDesc.ScratchAccelerationStructureData = meshResource.blasScratchBuffer.internalBuffer.gpuAddress;
+            blasDesc.DestAccelerationStructureData = primitive.blasBuffer.internalBuffer.gpuAddress;
+
+            commandList->BuildRaytracingAccelerationStructure(&blasDesc, 0, nullptr);
+            primitive.blasBuffer.internalBuffer.UAVBarrier(commandList.Get());
+            primitiveIdx++;
+        }
+    }
+
+    // Build tlas instancing
+    std::vector<D3D12_RAYTRACING_INSTANCE_DESC> instanceDescs(numInstances);
+    uint32_t instanceIndex = 0;
+    for (const NodeData& node : m_model.nodes)
+    {
+        const MeshData& mesh = m_model.meshes[node.meshIndex];
+        for (const PrimitiveData& primitive : mesh.primitives)
+        {
+            D3D12_RAYTRACING_INSTANCE_DESC& instanceDesc = instanceDescs[instanceIndex];
+            instanceDesc = {};
+            instanceDesc.InstanceID = instanceIndex;
+            instanceDesc.InstanceMask = 0xFF;
+            instanceDesc.AccelerationStructure = primitive.blasBuffer.internalBuffer.gpuAddress;
+            XMStoreFloat3x4(reinterpret_cast<XMFLOAT3X4*>(instanceDesc.Transform), node.transform);
+            instanceIndex++;
+        }
+    }
+
+    CheckHRESULT(d3dDevice->CreateCommittedResource(
+        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+        D3D12_HEAP_FLAG_NONE,
+        &CD3DX12_RESOURCE_DESC::Buffer(instanceDescs.size() * sizeof(D3D12_RAYTRACING_INSTANCE_DESC)),
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&meshResource.instanceBuffer)));
+
+    void* cpuMapped;
+    meshResource.instanceBuffer->Map(0, nullptr, &cpuMapped);
+    memcpy(cpuMapped, instanceDescs.data(), instanceDescs.size() * sizeof(D3D12_RAYTRACING_INSTANCE_DESC));
+    meshResource.instanceBuffer->Unmap(0, nullptr);
+
+    // Build tlas scratch buffer
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo = {};
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS input = {};
+    input.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+    input.Flags = buildFlags;
+    input.NumDescs = instanceDescs.size();
+    input.InstanceDescs = meshResource.instanceBuffer->GetGPUVirtualAddress();
+    d3dDevice->GetRaytracingAccelerationStructurePrebuildInfo(&input, &prebuildInfo);
+    assert(prebuildInfo.ResultDataMaxSizeInBytes > 0);
+    {
+        RawBufferInit rbi;
+        rbi.numElements = prebuildInfo.ResultDataMaxSizeInBytes / RawBuffer::Stride;
+        rbi.allowUAV = true;
+        rbi.initState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        rbi.name = L"RT Tlas ScratchBuffer";
+        meshResource.tlasScratchBuffer.Initialize(rbi);
+    }
+
+    // Build tlas buffer
+    {
+        RawBufferInit rbi;
+        rbi.numElements = prebuildInfo.ResultDataMaxSizeInBytes / RawBuffer::Stride;
+        rbi.allowUAV = true;
+        rbi.initState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+        rbi.name = L"RT Top Level Acceleration Structure";
+        meshResource.tlasBuffer.Initialize(rbi);
+    }
+    
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC buildDesc = {};
+    buildDesc.Inputs = input;
+    buildDesc.ScratchAccelerationStructureData = meshResource.tlasScratchBuffer.internalBuffer.gpuAddress;
+    buildDesc.DestAccelerationStructureData = meshResource.tlasBuffer.internalBuffer.gpuAddress;
+    commandList->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
+    meshResource.tlasBuffer.internalBuffer.UAVBarrier(commandList.Get());
+
+    //// Build instance info buffer
+    //std::vector<InstanceInfo> instanceInfo(numInstances);
+    //instanceIndex = 0;
+    //for (const NodeData& node : m_model.nodes)
+    //{
+    //    const MeshData& mesh = m_model.meshes[node.meshIndex];
+    //    for (const PrimitiveData& primitive : mesh.primitives)
+    //    {
+    //        InstanceInfo& instInfo = instanceInfo[instanceIndex];
+    //        instInfo = {};
+    //        instInfo.VtxOffset = primitive.vertexOffset;
+    //        instInfo.IdxOffsetByBytes = primitive.indexOffset * sizeof(uint32_t);
+    //        instInfo.MaterialIdx = primitive.materialIndex;
+    //        instInfo.UseTangent = primitive.hasTangent ? 1 : 0;
+    //        instInfo.UseVertexColor = primitive.hasVertexColor ? 1 : 0;
+    //        instanceIndex++;
+    //    }
+    //}
+
+    //StructuredBufferInit sbi;
+    //sbi.stride = sizeof(InstanceInfo);
+    //sbi.numElements = instanceInfo.size();
+    //sbi.initData = instanceInfo.data();
+    //sbi.name = L"Instance info buffer";
+    //meshResource.instanceBuffer.Initialize(sbi);
 }
+
 
 HRESULT Model::RenderDepthOnly(
     const ConstantBuffer* sceneCB,
