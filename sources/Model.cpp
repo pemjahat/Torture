@@ -26,11 +26,12 @@ void Model::Initialize()
 
 void Model::Shutdown()
 {
-    m_depthPipelineState = nullptr;
+    depthPSO = nullptr;
+    depthAlphaPSO = nullptr;
     alphaTestPipelineState = nullptr;
 
     m_rootSignature = nullptr;
-    m_depthRootSignature = nullptr;
+    depthRootSignature = nullptr;
 
     meshResource.vertexBuffer.Shutdown();
     meshResource.indexBuffer.Shutdown();
@@ -354,7 +355,7 @@ void ProcessMaterial(const tinygltf::Model& model, ModelData& modelData)
         }
         material.metallicFactor = static_cast<float>(pbr.metallicFactor);
         material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
-        material.alphaCutoff = mat.alphaMode.empty() ? 1.f : mat.alphaCutoff;
+        material.alphaCutoff = (mat.alphaMode.compare("OPAQUE") == 0) ? 1.f : mat.alphaCutoff;
         material.albedoTextureIndex = pbr.baseColorTexture.index;
         material.metallicTextureIndex = pbr.metallicRoughnessTexture.index;
         material.normalTextureIndex = mat.normalTexture.index;
@@ -403,21 +404,29 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
     std::filesystem::path depthShader = shaderPath / "basic.hlsl";
     std::filesystem::path gbufferShader = shaderPath / "gbuffer.hlsl";
 
-    CompileShaderFromFile(
+    /*CompileShaderFromFile(
         std::filesystem::absolute(mainShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
         L"VSMain",
         m_vertexShader,
-        ShaderType::Vertex);
+        ShaderType::Vertex);*/
 
+    // Depth prepass
     CompileShaderFromFile(
         std::filesystem::absolute(depthShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
         L"VSMain",
-        m_depthVertexShader,
+        depthVS,
         ShaderType::Vertex);
-
     CompileShaderFromFile(
+        std::filesystem::absolute(depthShader).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        L"PSMain",
+        depthAlphaPS,
+        ShaderType::Pixel);
+
+    // GBuffer
+    /*CompileShaderFromFile(
         std::filesystem::absolute(gbufferShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
         L"VSMain",
@@ -434,7 +443,7 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         std::filesystem::absolute(shaderPath).wstring(),
         L"PSAlphaTest",
         alphaTestPS,
-        ShaderType::Pixel);
+        ShaderType::Pixel);*/
 
     // Root signature (main pass)
     {
@@ -494,52 +503,59 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         rootSignatureDesc.pStaticSamplers = staticSampler;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-        CreateRootSignature(m_rootSignature, rootSignatureDesc);
+        //CreateRootSignature(m_rootSignature, rootSignatureDesc);
     }
  
     // Root Signature (depth pre-pass)
     {
-        D3D12_ROOT_PARAMETER1 rootParameters[3] = {};
+        D3D12_ROOT_PARAMETER1 rootParameters[5] = {};
+
+        // Bindless texture
+        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[0].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
+        rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
 
         // Scene Constant Buffer
-        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-        rootParameters[0].Descriptor.RegisterSpace = 0;
-        rootParameters[0].Descriptor.ShaderRegister = 0;
-        rootParameters[0].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+        rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[1].Descriptor.RegisterSpace = 0;
+        rootParameters[1].Descriptor.ShaderRegister = 0;
+        rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
 
         // Model Constant
-        rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        rootParameters[1].Constants.Num32BitValues = 2;
-        rootParameters[1].Constants.RegisterSpace = 0;
-        rootParameters[1].Constants.ShaderRegister = 2;
-
-        // Structured buffer
-        D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange = {};
-
-        // Descriptor range
-        srvDescriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvDescriptorRange.NumDescriptors = 1;
-        srvDescriptorRange.BaseShaderRegister = 0;
-        srvDescriptorRange.RegisterSpace = 0;
-        srvDescriptorRange.OffsetInDescriptorsFromTableStart = 0;
-        srvDescriptorRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
-
-        rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        rootParameters[2].DescriptorTable.pDescriptorRanges = &srvDescriptorRange;
-        rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
+        rootParameters[2].Constants.Num32BitValues = 2;
+        rootParameters[2].Constants.RegisterSpace = 0;
+        rootParameters[2].Constants.ShaderRegister = 2;
+
+        // Mesh + Material structured buffer
+        rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[3].Descriptor.RegisterSpace = 0;
+        rootParameters[3].Descriptor.ShaderRegister = 0;
+        rootParameters[3].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+        rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[4].Descriptor.RegisterSpace = 0;
+        rootParameters[4].Descriptor.ShaderRegister = 1;
+        rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+        // Static sampler
+        D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
+        staticSampler[0] = GetStaticSamplerState(SamplerState::Linear, 0, 0);
 
         // Root pipeline
         D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
         rootSignatureDesc.NumParameters = _countof(rootParameters);
         rootSignatureDesc.pParameters = rootParameters;
-        rootSignatureDesc.NumStaticSamplers = 0;
-        rootSignatureDesc.pStaticSamplers = nullptr;
+        rootSignatureDesc.NumStaticSamplers = _countof(staticSampler);
+        rootSignatureDesc.pStaticSamplers = staticSampler;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-        CreateRootSignature(m_depthRootSignature, rootSignatureDesc);
+        CreateRootSignature(depthRootSignature, rootSignatureDesc);
     }
 
     // GBuffer root signature
@@ -594,22 +610,24 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         rootSignatureDesc.pStaticSamplers = staticSampler;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-        CreateRootSignature(gbufferRootSignature, rootSignatureDesc);
+        //CreateRootSignature(gbufferRootSignature, rootSignatureDesc);
     }
 }
 
 void Model::CreatePSO()
 {
+    D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+    };
+
     // Main pass PSO
     {
-        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
-        {
-            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
-        };
+        
 
         /*D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = m_rootSignature.Get();
@@ -630,14 +648,14 @@ void Model::CreatePSO()
 
     // Depth only PSO
     {
-        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+        /*D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
         {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        };
+        };*/
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = m_depthRootSignature.Get();
-        psoDesc.VS = { m_depthVertexShader->GetBufferPointer(), m_depthVertexShader->GetBufferSize() };
+        psoDesc.pRootSignature = depthRootSignature.Get();
+        psoDesc.VS = { depthVS->GetBufferPointer(), depthVS->GetBufferSize() };
         psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
         psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
         psoDesc.DepthStencilState = GetDepthStencilState(DepthStencilState::WriteEnabled);
@@ -647,7 +665,10 @@ void Model::CreatePSO()
         psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc.Count = 1;
         psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
-        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_depthPipelineState)));
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&depthPSO)));
+
+        psoDesc.PS = { depthAlphaPS->GetBufferPointer(), depthAlphaPS->GetBufferSize() };
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&depthAlphaPSO)));
     }
 
     // GBuffer pso
@@ -661,7 +682,7 @@ void Model::CreatePSO()
             {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
         };
 
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        /*D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = gbufferRootSignature.Get();
         psoDesc.VS = { gbufferVS->GetBufferPointer(), gbufferVS->GetBufferSize() };
         psoDesc.PS = { gbufferPS->GetBufferPointer(), gbufferPS->GetBufferSize() };
@@ -676,11 +697,11 @@ void Model::CreatePSO()
         psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;
         psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc.Count = 1;
-        psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
-        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferPipelineState)));
+        psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };*/
+        //CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferPipelineState)));
 
-        psoDesc.PS = { alphaTestPS->GetBufferPointer(), alphaTestPS->GetBufferSize() };
-        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&alphaTestPipelineState)));
+        //psoDesc.PS = { alphaTestPS->GetBufferPointer(), alphaTestPS->GetBufferSize() };
+        //CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&alphaTestPipelineState)));
     }
 }
 
@@ -794,10 +815,9 @@ HRESULT Model::UploadGpuResources()
         sbi.stride = sizeof(MeshStructuredBuffer);
         sbi.numElements = meshes.size();
         sbi.initData = meshes.data();
-        sbi.initState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         sbi.name = L"MeshStructuredBuffer";
 
-        m_meshSB.Initialize(sbi);
+        meshSB.Initialize(sbi);
     }
 
     // Create material structured buffer
@@ -814,10 +834,9 @@ HRESULT Model::UploadGpuResources()
         sbi.stride = sizeof(MaterialData);
         sbi.numElements = m_model.materials.size();
         sbi.initData = m_model.materials.data();
-        sbi.initState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         sbi.name = L"MaterialStructuredBuffer";
 
-        m_materialSB.Initialize(sbi);
+        materialSB.Initialize(sbi);
     }
 
     // Create sampler (create dummy if it's empty)
@@ -1031,36 +1050,35 @@ void Model::BuildAccelerationStructure()
     meshResource.instanceInfoBuffer.Initialize(sbi);
 }
 
-
-HRESULT Model::RenderDepthOnly(
-    const ConstantBuffer* sceneCB,
-    const BoundingFrustum& frustum)
+void Model::RenderModel(const BoundingFrustum& frustum, bool AlphaFilter)
 {
-    if (m_model.nodes.empty())
-    {
-        return E_FAIL;
-    }
-
-    commandList->SetPipelineState(m_depthPipelineState.Get());
-    commandList->SetGraphicsRootSignature(m_depthRootSignature.Get());
-
-    // Bind srv descriptor heaps contain sb/srv
-    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
-    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
-    sceneCB->SetAsGfxRootParameter(commandList.Get(), 0);
-    m_meshSB.SetAsGfxRootParameter(commandList.Get(), 2);
-
-    commandList->IASetVertexBuffers(0, 1, &meshResource.vertexBuffer.VBView());
-    commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());
-    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
     UINT constantIndex = 0;
-    for (const auto& node : m_model.nodes)
+    for (const NodeData& node : m_model.nodes)
     {
         const MeshData& mesh = m_model.meshes[node.meshIndex];
-        for (const auto& primitive : mesh.primitives)
+        for (const PrimitiveData& primitive : mesh.primitives)
         {
-            // transform bounding box to world space
+            const MaterialData& material = m_model.materials[primitive.materialIndex];
+            const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
+
+            if (AlphaFilter)
+            {
+                if (!nonOpaque)
+                {
+                    constantIndex++;
+                    continue;
+                }
+            }
+            else
+            {
+                if (nonOpaque)
+                {
+                    constantIndex++;
+                    continue;
+                }
+            }
+
+            // TOD: transform bounding box to world space
             BoundingBox worldBox;
             primitive.boundingBox.Transform(worldBox, node.transform);
             if (frustum.Contains(worldBox) == DISJOINT)
@@ -1071,13 +1089,43 @@ HRESULT Model::RenderDepthOnly(
 
             // constant
             ModelConstants constant = { static_cast<UINT>(constantIndex), static_cast<UINT>(primitive.materialIndex) };
-            commandList->SetGraphicsRoot32BitConstants(1, 2, &constant, 0);
+            commandList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
 
             // Set vertex and index buffers
             commandList->DrawIndexedInstanced(primitive.indices.size(), 1, primitive.indexOffset, primitive.vertexOffset, 0);
             constantIndex++;
         }
     }
+}
+HRESULT Model::RenderDepthOnly(
+    const ConstantBuffer* sceneCB,
+    const BoundingFrustum& frustum)
+{
+    if (m_model.nodes.empty())
+    {
+        return E_FAIL;
+    }
+    commandList->SetGraphicsRootSignature(depthRootSignature.Get());
+
+    // Bind srv descriptor heaps contain sb/srv
+    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
+    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+    SrvSetAsGfxRootParameter(commandList.Get(), 0); // bindless
+    sceneCB->SetAsGfxRootParameter(commandList.Get(), 1);
+    commandList->SetGraphicsRootShaderResourceView(3, meshSB.internalBuffer.gpuAddress);
+    commandList->SetGraphicsRootShaderResourceView(4, materialSB.internalBuffer.gpuAddress);
+
+    commandList->IASetVertexBuffers(0, 1, &meshResource.vertexBuffer.VBView());
+    commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // Render opaque first
+    commandList->SetPipelineState(depthPSO.Get());
+    RenderModel(frustum, false);
+
+    // Render alpha test
+    commandList->SetPipelineState(depthAlphaPSO.Get());
+    RenderModel(frustum, true);
     return S_OK;
 }
 
@@ -1158,7 +1206,7 @@ void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::Bounding
     commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
     SrvSetAsGfxRootParameter(commandList.Get(), 0);
     sceneCB->SetAsGfxRootParameter(commandList.Get(), 1);
-    m_meshSB.SetAsGfxRootParameter(commandList.Get(), 3);
+    meshSB.SetAsGfxRootParameter(commandList.Get(), 3);
 
     commandList->IASetVertexBuffers(0, 1, &meshResource.vertexBuffer.VBView());
     commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());

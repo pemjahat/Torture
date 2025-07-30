@@ -710,8 +710,8 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     std::wstring gltfPath = GetAssetFullPath(m_modelPath);
         
     m_model.LoadFromFile(WStringToString(gltfPath));
-    //m_model.LoadShader(shaderPath);
-    //m_model.CreatePSO();
+    m_model.LoadShader(shaderPath);
+    m_model.CreatePSO();
     m_model.UploadGpuResources();
     CreateRT();
     CreateRTPipelineStateObject();
@@ -1106,12 +1106,12 @@ void RenderApplication::PopulateCommandList()
 
     // Depth only pass
     {
-        /*commandList->OMSetRenderTargets(0, nullptr, FALSE, &depthBuffer.dsv);
+        commandList->OMSetRenderTargets(0, nullptr, FALSE, &depthBuffer.dsv);
         commandList->ClearDepthStencilView(depthBuffer.dsv, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
 
         m_model.RenderDepthOnly(
-            &m_sceneCB,            
-            frustum);*/
+            &m_sceneCB,
+            frustum);
 
         // Temporary
         /*D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(

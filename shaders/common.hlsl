@@ -7,18 +7,18 @@ struct ModelConstants
     uint materialIndex; // index for material structured buffer
 };
 
-struct MeshData
-{
-    float3 centerBound;
-    uint vertexOffset;
+//struct MeshData
+//{
+//    float3 centerBound;
+//    uint vertexOffset;
     
-    float3 extentsBound;
-    uint indexOffset;
+//    float3 extentsBound;
+//    uint indexOffset;
     
-    int useVertexColor;
-    int useTangent; //  1 if tangent available, 0 use Mikktspace
+//    int useVertexColor;
+//    int useTangent; //  1 if tangent available, 0 use Mikktspace
     
-    float4x4 meshTransform; //Per-mesh transform
-};
+//    float4x4 meshTransform; //Per-mesh transform
+//};
 
 #endif

@@ -139,33 +139,39 @@ public:
 	const std::vector<MeshData>& Meshes() const { return m_model.meshes; }
 	const std::vector<MaterialData>& Materials() const { return m_model.materials; }
 
-	const StructuredBuffer& MeshBuffer() const { return m_meshSB; }
-	const StructuredBuffer& MaterialBuffer() const { return m_materialSB; }
+	const StructuredBuffer& MeshBuffer() const { return meshSB; }
+	const StructuredBuffer& MaterialBuffer() const { return materialSB; }
 	const MeshResources& MeshResource() const { return meshResource; }
 private:
 	// Helper
 	D3D12_FILTER GetD3D12Filter(int magFilter, int minFilter);
 	D3D12_TEXTURE_ADDRESS_MODE GetD3D12AddressMode(int wrapMode);
 
+	void RenderModel(const BoundingFrustum& frustum, bool AlphaFilter);
+
 	// 
 	ModelData m_model;
 
 	MeshResources meshResource;
 
-	StructuredBuffer m_meshSB;
-	StructuredBuffer m_materialSB;
+	StructuredBuffer meshSB;
+	StructuredBuffer materialSB;
 	D3D12_CPU_DESCRIPTOR_HANDLE m_materialCpuHandle;
 
 	ComPtr<IDxcBlob> m_vertexShader;
-	ComPtr<IDxcBlob> m_depthVertexShader;
+	ComPtr<IDxcBlob> depthVS;
+	ComPtr<IDxcBlob> depthAlphaPS;
 	ComPtr<IDxcBlob> gbufferVS;
 	ComPtr<IDxcBlob> gbufferPS;
 	ComPtr<IDxcBlob> alphaTestPS;
 
+	// Prepass
+	ComPtr<ID3D12RootSignature> depthRootSignature;
+	ComPtr<ID3D12PipelineState> depthPSO;
+	ComPtr<ID3D12PipelineState> depthAlphaPSO;
+
 	ComPtr<ID3D12RootSignature> m_rootSignature;
-	ComPtr<ID3D12RootSignature> m_depthRootSignature;
 	ComPtr<ID3D12RootSignature> gbufferRootSignature;	
-	ComPtr<ID3D12PipelineState> m_depthPipelineState;
 	ComPtr<ID3D12PipelineState> gbufferPipelineState;
 	ComPtr<ID3D12PipelineState> alphaTestPipelineState;
 };
