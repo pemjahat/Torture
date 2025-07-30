@@ -1078,7 +1078,7 @@ void Model::RenderModel(const BoundingFrustum& frustum, bool AlphaFilter)
                 }
             }
 
-            // TOD: transform bounding box to world space
+            // transform bounding box to world space
             BoundingBox worldBox;
             primitive.boundingBox.Transform(worldBox, node.transform);
             if (frustum.Contains(worldBox) == DISJOINT)

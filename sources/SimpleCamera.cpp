@@ -108,7 +108,7 @@ BoundingFrustum SimpleCamera::GetFrustum(float fov, float aspectRatio, float nea
 {
 	XMMATRIX proj = GetProjectionMatrix(fov, aspectRatio, nearPlane, farPlane);
 
-	BoundingFrustum frustum(proj, true);
+	BoundingFrustum frustum(proj, false);
 
 	// Transform frustum to world space (inverse view matrix)
 	XMMATRIX view = GetViewMatrix();
