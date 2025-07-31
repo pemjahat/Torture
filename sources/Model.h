@@ -126,7 +126,6 @@ public:
 		const ConstantBuffer* lightCB,
 		const DirectX::BoundingFrustum& frustum);
 
-	void RenderDepthPrepass();
 	void RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::BoundingFrustum& frustum);
 
 	// Accessor
@@ -166,14 +165,13 @@ private:
 	ComPtr<IDxcBlob> alphaTestPS;
 
 	// Prepass
-	ComPtr<ID3D12RootSignature> depthRootSignature;
+	ComPtr<ID3D12RootSignature> mainRootSignature;	// DepthPrePass + GBuffer
 	ComPtr<ID3D12PipelineState> depthPSO;
 	ComPtr<ID3D12PipelineState> depthAlphaPSO;
+	ComPtr<ID3D12PipelineState> gbufferPSO;
+	ComPtr<ID3D12PipelineState> gbufferAlphaPSO;
 
 	ComPtr<ID3D12RootSignature> m_rootSignature;
-	ComPtr<ID3D12RootSignature> gbufferRootSignature;	
-	ComPtr<ID3D12PipelineState> gbufferPipelineState;
-	ComPtr<ID3D12PipelineState> alphaTestPipelineState;
 };
 
 

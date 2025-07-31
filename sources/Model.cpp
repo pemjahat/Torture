@@ -28,10 +28,11 @@ void Model::Shutdown()
 {
     depthPSO = nullptr;
     depthAlphaPSO = nullptr;
-    alphaTestPipelineState = nullptr;
+    gbufferPSO = nullptr;
+    gbufferAlphaPSO = nullptr;
 
     m_rootSignature = nullptr;
-    depthRootSignature = nullptr;
+    mainRootSignature = nullptr;
 
     meshResource.vertexBuffer.Shutdown();
     meshResource.indexBuffer.Shutdown();
@@ -426,7 +427,7 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         ShaderType::Pixel);
 
     // GBuffer
-    /*CompileShaderFromFile(
+    CompileShaderFromFile(
         std::filesystem::absolute(gbufferShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
         L"VSMain",
@@ -443,7 +444,7 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         std::filesystem::absolute(shaderPath).wstring(),
         L"PSAlphaTest",
         alphaTestPS,
-        ShaderType::Pixel);*/
+        ShaderType::Pixel);
 
     // Root signature (main pass)
     {
@@ -506,7 +507,7 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         //CreateRootSignature(m_rootSignature, rootSignatureDesc);
     }
  
-    // Root Signature (depth pre-pass)
+    // Root Signature (depth pre-pass + gbuffer)
     {
         D3D12_ROOT_PARAMETER1 rootParameters[5] = {};
 
@@ -555,62 +556,7 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         rootSignatureDesc.pStaticSamplers = staticSampler;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-        CreateRootSignature(depthRootSignature, rootSignatureDesc);
-    }
-
-    // GBuffer root signature
-    {
-        D3D12_ROOT_PARAMETER1 rootParameters[4] = {};
-
-        // Global srv used to bind bindless texture
-        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-        rootParameters[0].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
-        rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
-
-        // Scene Constant
-        rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-        rootParameters[1].Descriptor.RegisterSpace = 0;
-        rootParameters[1].Descriptor.ShaderRegister = 0;
-        rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
-        
-        // Model Constant
-        rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        rootParameters[2].Constants.Num32BitValues = 2;
-        rootParameters[2].Constants.RegisterSpace = 0;
-        rootParameters[2].Constants.ShaderRegister = 1;
-
-        // Structured buffer
-        D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange[1] = {};
-
-        // Descriptor range
-        srvDescriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvDescriptorRange[0].NumDescriptors = 2;
-        srvDescriptorRange[0].BaseShaderRegister = 0;
-        srvDescriptorRange[0].RegisterSpace = 0;
-        srvDescriptorRange[0].OffsetInDescriptorsFromTableStart = 0;
-        srvDescriptorRange[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
-
-        rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        rootParameters[3].DescriptorTable.pDescriptorRanges = srvDescriptorRange;
-        rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
-
-        // Static sampler
-        D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
-        staticSampler[0] = GetStaticSamplerState(SamplerState::Linear, 0, 0);
-
-        // Root pipeline
-        D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
-        rootSignatureDesc.NumParameters = _countof(rootParameters);
-        rootSignatureDesc.pParameters = rootParameters;
-        rootSignatureDesc.NumStaticSamplers = _countof(staticSampler);
-        rootSignatureDesc.pStaticSamplers = staticSampler;
-        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-
-        //CreateRootSignature(gbufferRootSignature, rootSignatureDesc);
+        CreateRootSignature(mainRootSignature, rootSignatureDesc);
     }
 }
 
@@ -627,8 +573,6 @@ void Model::CreatePSO()
 
     // Main pass PSO
     {
-        
-
         /*D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = m_rootSignature.Get();
         psoDesc.VS = { m_vertexShader->GetBufferPointer(), m_vertexShader->GetBufferSize() };
@@ -654,7 +598,7 @@ void Model::CreatePSO()
         };*/
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = depthRootSignature.Get();
+        psoDesc.pRootSignature = mainRootSignature.Get();
         psoDesc.VS = { depthVS->GetBufferPointer(), depthVS->GetBufferSize() };
         psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
         psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
@@ -673,17 +617,8 @@ void Model::CreatePSO()
 
     // GBuffer pso
     {
-        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
-        {
-            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
-        };
-
-        /*D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = gbufferRootSignature.Get();
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = mainRootSignature.Get();
         psoDesc.VS = { gbufferVS->GetBufferPointer(), gbufferVS->GetBufferSize() };
         psoDesc.PS = { gbufferPS->GetBufferPointer(), gbufferPS->GetBufferSize() };
         psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
@@ -697,11 +632,11 @@ void Model::CreatePSO()
         psoDesc.RTVFormats[2] = DXGI_FORMAT_R8G8B8A8_UNORM;
         psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc.Count = 1;
-        psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };*/
-        //CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferPipelineState)));
+        psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferPSO)));
 
-        //psoDesc.PS = { alphaTestPS->GetBufferPointer(), alphaTestPS->GetBufferSize() };
-        //CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&alphaTestPipelineState)));
+        psoDesc.PS = { alphaTestPS->GetBufferPointer(), alphaTestPS->GetBufferSize() };
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferAlphaPSO)));
     }
 }
 
@@ -1105,7 +1040,7 @@ HRESULT Model::RenderDepthOnly(
     {
         return E_FAIL;
     }
-    commandList->SetGraphicsRootSignature(depthRootSignature.Get());
+    commandList->SetGraphicsRootSignature(mainRootSignature.Get());
 
     // Bind srv descriptor heaps contain sb/srv
     ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
@@ -1186,67 +1121,32 @@ HRESULT Model::RenderBasePass(
     return S_OK;
 }
 
-void Model::RenderDepthPrepass()
-{
-
-}
-
 void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::BoundingFrustum& frustum)
 {
     if (m_model.nodes.empty())
     {
         return;
     }
-
-    commandList->SetPipelineState(gbufferPipelineState.Get());
-    commandList->SetGraphicsRootSignature(gbufferRootSignature.Get());
+    
+    commandList->SetGraphicsRootSignature(mainRootSignature.Get());
 
     // Bind srv descriptor heaps contain texture srv
     ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
     commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
-    SrvSetAsGfxRootParameter(commandList.Get(), 0);
+    SrvSetAsGfxRootParameter(commandList.Get(), 0); // bindless
     sceneCB->SetAsGfxRootParameter(commandList.Get(), 1);
-    meshSB.SetAsGfxRootParameter(commandList.Get(), 3);
+    commandList->SetGraphicsRootShaderResourceView(3, meshSB.internalBuffer.gpuAddress);
+    commandList->SetGraphicsRootShaderResourceView(4, materialSB.internalBuffer.gpuAddress);
 
     commandList->IASetVertexBuffers(0, 1, &meshResource.vertexBuffer.VBView());
     commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    ComPtr<ID3D12PipelineState> currPSO = gbufferPipelineState;
+    // Render opaque first
+    commandList->SetPipelineState(gbufferPSO.Get());
+    RenderModel(frustum, false);
 
-    UINT constantIndex = 0;
-    for (const auto& node : m_model.nodes)
-    {
-        const MeshData& mesh = m_model.meshes[node.meshIndex];
-        for (const auto& primitive : mesh.primitives)
-        {
-            // transform bounding box to world space
-            BoundingBox worldBox;
-            primitive.boundingBox.Transform(worldBox, node.transform);
-
-            if (frustum.Contains(worldBox) == DISJOINT)
-            {
-                constantIndex++;
-                continue;
-            }
-
-            // Constant
-            ModelConstants constant = { static_cast<UINT>(constantIndex), static_cast<UINT>(primitive.materialIndex) };
-            commandList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
-
-            ComPtr<ID3D12PipelineState> newPSO = gbufferPipelineState;
-            const MaterialData& material = m_model.materials[primitive.materialIndex];
-            if (material.alphaCutoff < 1.f)
-                newPSO = alphaTestPipelineState;
-
-            if (currPSO != newPSO)
-            {
-                commandList->SetPipelineState(newPSO.Get());
-                currPSO = newPSO;
-            }
-            // Set vertex and index buffers
-            commandList->DrawIndexedInstanced(primitive.indices.size(), 1, primitive.indexOffset, primitive.vertexOffset, 0);
-            constantIndex++;
-        }
-    }
+    // Render alpha test
+    commandList->SetPipelineState(gbufferAlphaPSO.Get());
+    RenderModel(frustum, true);
 }

@@ -30,10 +30,10 @@ struct PSOutput
 };
 
 ConstantBuffer<SceneConstantBuffer> sceneCB : register(b0);
-ConstantBuffer<ModelConstants> modelConstants : register(b1);
+ConstantBuffer<ModelConstants> modelConstants : register(b2);
 
 Texture2D materialTex[] : register(t0, space1); // bindless for material (share desc heap)
-StructuredBuffer<MeshData> meshData : register(t0);
+StructuredBuffer<MeshStructuredBuffer> meshData : register(t0);
 StructuredBuffer<MaterialData> materialData : register(t1);
 
 SamplerState g_sampler : register(s0);
@@ -42,7 +42,7 @@ VSOutput VSMain(VSInput input)
 {
     VSOutput output;
     
-    MeshData mesh = meshData[modelConstants.meshIndex];
+    MeshStructuredBuffer mesh = meshData[modelConstants.meshIndex];
     
     // Apply mesh transform
     float4 pos = float4(input.position, 1.f);
@@ -65,7 +65,7 @@ VSOutput VSMain(VSInput input)
 
 PSOutput PSGBuffer(VSOutput input)
 {
-    MeshData mesh = meshData[modelConstants.meshIndex];
+    MeshStructuredBuffer mesh = meshData[modelConstants.meshIndex];
     MaterialData material = materialData[modelConstants.materialIndex];
     
     //
@@ -150,7 +150,7 @@ PSOutput PSGBuffer(VSOutput input)
 
 PSOutput PSAlphaTest(VSOutput input)
 {
-    MeshData mesh = meshData[modelConstants.meshIndex];
+    MeshStructuredBuffer mesh = meshData[modelConstants.meshIndex];
     MaterialData material = materialData[modelConstants.materialIndex];
     
     //

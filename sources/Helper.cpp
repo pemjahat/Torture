@@ -38,7 +38,6 @@ void InitializeHelper()
 		rasterDesc.DepthClipEnable = true;
 		rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
 		rasterDesc.MultisampleEnable = false;
-		rasterDesc.FrontCounterClockwise = true; // Matches glTF CCW convention
 	}
 	{
 		D3D12_RASTERIZER_DESC& rasterDesc = RasterizerStateDesc[uint32_t(RasterizerState::BackfaceCull)];
@@ -46,7 +45,6 @@ void InitializeHelper()
 		rasterDesc.DepthClipEnable = true;
 		rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
 		rasterDesc.MultisampleEnable = false;
-		rasterDesc.FrontCounterClockwise = true; // Matches glTF CCW convention
 	}
 
 	// Depth Stencil state

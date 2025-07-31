@@ -1186,7 +1186,7 @@ void RenderApplication::PopulateCommandList()
     }
     // Main pass
     {
-        /*RenderGBuffer(frustum);
+        RenderGBuffer(frustum);
 
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier = CD3DX12_RESOURCE_BARRIER::Transition(
@@ -1201,13 +1201,13 @@ void RenderApplication::PopulateCommandList()
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
         commandList->ClearRenderTargetView(backBuffer[m_frameIndex].rtv, clear_color_with_alpha, 0, nullptr);
 
-        RenderDeferred(&m_lightCB);*/
+        RenderDeferred(&m_lightCB);
     }
     // Ray tracing
     {
-        RenderRaytracing();
+        //RenderRaytracing();
 
-        CopyRaytracingToBackBuffer();
+        //CopyRaytracingToBackBuffer();
     }
 
     // ImGui
