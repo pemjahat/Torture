@@ -193,6 +193,7 @@ struct DepthBuffer
 {
 	Texture texture;
 	D3D12_CPU_DESCRIPTOR_HANDLE dsv = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE srv = {};
 	DXGI_FORMAT depthFormat = DXGI_FORMAT_UNKNOWN;
 
 	void Initialize(const DepthBufferInit& init);

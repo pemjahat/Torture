@@ -218,7 +218,7 @@ void CompileShaderFromFile(
 	LPCWSTR arguments[] =
 	{
 		L"-E", functionName.c_str(),
-		L"-T", L"vs_6_0",
+		L"-T", L"vs_6_5",
 		L"-Zi", L"-WX",
 		L"-I", includePath.c_str()
 	};
@@ -226,12 +226,12 @@ void CompileShaderFromFile(
 	if (type == ShaderType::Pixel)
 	{
 		// Compile arguments
-		arguments[3] = L"ps_6_0";
+		arguments[3] = L"ps_6_5";
 	}
 	else if (type == ShaderType::Compute)
 	{
 		// Compile arguments
-		arguments[3] = L"cs_6_0";
+		arguments[3] = L"cs_6_5";
 	}
 	else if (type == ShaderType::Library)
 	{

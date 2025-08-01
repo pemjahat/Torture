@@ -531,10 +531,23 @@ void DepthBuffer::Initialize(const DepthBufferInit& init)
 	dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
 
 	d3dDevice->CreateDepthStencilView(texture.resource.Get(), &dsvDesc, dsv);
+
+	// ShaderResource View
+	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
+	texture.SRV = srvAlloc.descriptorIndex;
+	srv = srvAlloc.gpuHandle;
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.Format = srvFormat;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MipLevels = 1;
+	d3dDevice->CreateShaderResourceView(texture.resource.Get(), &srvDesc, srvAlloc.cpuHandle);
 }
 
 void DepthBuffer::Shutdown()
 {
+	srvDescriptorHeap.Free(srv);
 	dsvDescriptorHeap.Free(dsv);
 	texture.Shutdown();
 }

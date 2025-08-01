@@ -38,6 +38,7 @@ public:
     void CreateRenderTargets();
     void RenderGBuffer(const DirectX::BoundingFrustum& frustum);
     void RenderDeferred(const ConstantBuffer* lightCB);
+    void DispatchRaytracing();
     void RenderRaytracing();
     void CopyRaytracingToBackBuffer();
 private:
@@ -84,8 +85,18 @@ private:
     // Deferred resource
     ComPtr<IDxcBlob> fullscreenVS;
     ComPtr<IDxcBlob> deferredPS;
+    ComPtr<IDxcBlob> raytraceShadowCS;
     ComPtr<ID3D12RootSignature> deferredRootSignature;
     ComPtr<ID3D12PipelineState> deferredPSO;
+    ComPtr<ID3D12RootSignature> raytraceRootSignature;
+    ComPtr<ID3D12PipelineState> raytraceShadowPSO;
+
+    // Raytracing shadow
+    ComPtr<IDxcBlob> rtShadowLib;
+    ComPtr<ID3D12StateObject> rtShadowPSO;
+    StructuredBuffer rtShadowRaygenTable;
+    StructuredBuffer rtShadowHitTable;
+    StructuredBuffer rtShadowMissTable;
 
     // HiZ Passes resource
     ComPtr<ID3D12Resource> m_hiZBuffer;
@@ -142,6 +153,7 @@ private:
     // Raytrace
     void CreateRT();
     void CreateRTPipelineStateObject();
+    void CreateRTShadowPSO();
     void CreateRTAccelerationStructure();
     
     void LoadPipeline();
