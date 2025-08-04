@@ -44,23 +44,6 @@ public:
 private:
     static const UINT FrameCount = 2;
     
-    
-
-    // Try raytracing
-    struct Viewport
-    {
-        float left;
-        float top;
-        float right;
-        float bottom;
-    };
-
-    struct RaygenConstantBuffer
-    {
-        Viewport viewport;
-        Viewport stencil;
-    };
-
     // Pipeline object
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;
@@ -88,15 +71,8 @@ private:
     ComPtr<IDxcBlob> raytraceShadowCS;
     ComPtr<ID3D12RootSignature> deferredRootSignature;
     ComPtr<ID3D12PipelineState> deferredPSO;
-    ComPtr<ID3D12RootSignature> raytraceRootSignature;
-    ComPtr<ID3D12PipelineState> raytraceShadowPSO;
-
-    // Raytracing shadow
-    ComPtr<IDxcBlob> rtShadowLib;
-    ComPtr<ID3D12StateObject> rtShadowPSO;
-    StructuredBuffer rtShadowRaygenTable;
-    StructuredBuffer rtShadowHitTable;
-    StructuredBuffer rtShadowMissTable;
+    ComPtr<ID3D12RootSignature> rtRootSignature;
+    ComPtr<ID3D12PipelineState> rtShadowPSO;
 
     // HiZ Passes resource
     ComPtr<ID3D12Resource> m_hiZBuffer;
@@ -111,14 +87,13 @@ private:
     // Testing ray tracing
     ComPtr<IDxcBlob> raytraceLib;
     RenderTexture rtBuffer;
-    ComPtr<ID3D12RootSignature> rtRootSignature;
+    
     ComPtr<ID3D12StateObject> rtPipelineState;
     StructuredBuffer rtRayGenTable;
     StructuredBuffer rtHitTable;
     StructuredBuffer rtMissTable;
 
     typedef UINT16 Index;
-    RaygenConstantBuffer raygenCB;
 
     // Synchronization
     UINT m_frameIndex;
