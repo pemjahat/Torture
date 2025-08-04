@@ -350,9 +350,11 @@ void RenderApplication::CreateRTShadowPSO()
     CompileShaderFromFile(
         std::filesystem::absolute(raytraceShadow).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
-        L"",
+        //L"",
+        L"ShadowRayCompute",
         raytraceShadowCS,
-        ShaderType::Library);
+        //ShaderType::Library);
+        ShaderType::Compute);
 
     D3D12_ROOT_PARAMETER1 rootParameters[5] = {};
 
@@ -410,101 +412,106 @@ void RenderApplication::CreateRTShadowPSO()
 
     CreateRootSignature(raytraceRootSignature, rootSignatureDesc);
 
-    // Create PSO
-    StateObjectBuilder builder;
-    builder.Init(9);
-
-    {
-        // DXIL
-        D3D12_DXIL_LIBRARY_DESC dxilDesc = {};
-        dxilDesc.DXILLibrary = { raytraceShadowCS->GetBufferPointer(), raytraceShadowCS->GetBufferSize() };
-        builder.AddSubObject(dxilDesc);
-    }
-    {
-        // Closest hit (Shadow)
-        D3D12_HIT_GROUP_DESC hitDesc = {};
-        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
-        hitDesc.ClosestHitShaderImport = L"MyClosestHitShader";
-        hitDesc.HitGroupExport = L"MyHitGroup";
-        builder.AddSubObject(hitDesc);
-    }
-    {
-        D3D12_RAYTRACING_SHADER_CONFIG shaderConfig = {};
-        UINT payloadSize = std::max(sizeof(RayPayload), sizeof(ShadowRayPayload));
-        shaderConfig.MaxAttributeSizeInBytes = 2 * sizeof(float); //float2 barrycentric
-        shaderConfig.MaxPayloadSizeInBytes = payloadSize;
-        builder.AddSubObject(shaderConfig);
-    }
-    {
-        D3D12_GLOBAL_ROOT_SIGNATURE globalRSDesc = {};
-        globalRSDesc.pGlobalRootSignature = raytraceRootSignature.Get();
-        builder.AddSubObject(globalRSDesc);
-    }
-    {
-        D3D12_RAYTRACING_PIPELINE_CONFIG configDesc = {};
-        configDesc.MaxTraceRecursionDepth = 1; //MAX_RECURSION_DEPTH;  // Primary ray only
-        builder.AddSubObject(configDesc);
-    }
-
-    rtShadowPSO = builder.CreateStateObject(D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
-
-    // Shader identifier for making shader record
-    ID3D12StateObjectProperties* psoProps = nullptr;
-    rtShadowPSO->QueryInterface(IID_PPV_ARGS(&psoProps));
-
-    const void* raygenID = psoProps->GetShaderIdentifier(L"MyRaygenShader");
-    const void* hitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup");
-    const void* missID = psoProps->GetShaderIdentifier(L"MyMissShader");
+    D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.pRootSignature = raytraceRootSignature.Get();
+    psoDesc.CS = { raytraceShadowCS->GetBufferPointer(), raytraceShadowCS->GetBufferSize() };
+    CheckHRESULT(d3dDevice->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&raytraceShadowPSO)));
     
-    // Shader tables
-    {
-        ShaderIdentifier raygenRecords[1] = { ShaderIdentifier(raygenID) };
+    // Create PSO
+    //StateObjectBuilder builder;
+    //builder.Init(9);
 
-        StructuredBufferInit sbInit;
-        sbInit.stride = sizeof(ShaderIdentifier);
-        sbInit.numElements = _countof(raygenRecords);
-        sbInit.initData = raygenRecords;
-        sbInit.name = L"Raygen Shader Table";
-        rtShadowRaygenTable.Initialize(sbInit);
-    }
-    {
-        ShaderIdentifier missRecords[1] = { ShaderIdentifier(missID) };
+    //{
+    //    // DXIL
+    //    D3D12_DXIL_LIBRARY_DESC dxilDesc = {};
+    //    dxilDesc.DXILLibrary = { raytraceShadowCS->GetBufferPointer(), raytraceShadowCS->GetBufferSize() };
+    //    builder.AddSubObject(dxilDesc);
+    //}
+    //{
+    //    // Closest hit (Shadow)
+    //    D3D12_HIT_GROUP_DESC hitDesc = {};
+    //    hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+    //    hitDesc.ClosestHitShaderImport = L"MyClosestHitShader";
+    //    hitDesc.HitGroupExport = L"MyHitGroup";
+    //    builder.AddSubObject(hitDesc);
+    //}
+    //{
+    //    D3D12_RAYTRACING_SHADER_CONFIG shaderConfig = {};
+    //    UINT payloadSize = std::max(sizeof(RayPayload), sizeof(ShadowRayPayload));
+    //    shaderConfig.MaxAttributeSizeInBytes = 2 * sizeof(float); //float2 barrycentric
+    //    shaderConfig.MaxPayloadSizeInBytes = payloadSize;
+    //    builder.AddSubObject(shaderConfig);
+    //}
+    //{
+    //    D3D12_GLOBAL_ROOT_SIGNATURE globalRSDesc = {};
+    //    globalRSDesc.pGlobalRootSignature = raytraceRootSignature.Get();
+    //    builder.AddSubObject(globalRSDesc);
+    //}
+    //{
+    //    D3D12_RAYTRACING_PIPELINE_CONFIG configDesc = {};
+    //    configDesc.MaxTraceRecursionDepth = 1; //MAX_RECURSION_DEPTH;  // Primary ray only
+    //    builder.AddSubObject(configDesc);
+    //}
 
-        StructuredBufferInit sbInit;
-        sbInit.stride = sizeof(ShaderIdentifier);
-        sbInit.numElements = _countof(missRecords);
-        sbInit.initData = missRecords;
-        sbInit.name = L"Miss Shader Table";
-        rtShadowMissTable.Initialize(sbInit);
+    //rtShadowPSO = builder.CreateStateObject(D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
 
-    }
-    {
-        const uint32_t numPrimitives = m_model.NumPrimitives();
-        uint32_t primitiveIndex = 0;
-        std::vector<ShaderIdentifier> hitRecords(numPrimitives);
-        const std::vector<MeshData>& meshes = m_model.Meshes();
-        for (const MeshData& mesh : meshes)
-        {
-            for (const PrimitiveData& primitive : mesh.primitives)
-            {
-                const MaterialData& material = m_model.Materials()[primitive.materialIndex];
-                const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
+    //// Shader identifier for making shader record
+    //ID3D12StateObjectProperties* psoProps = nullptr;
+    //rtShadowPSO->QueryInterface(IID_PPV_ARGS(&psoProps));
 
-                hitRecords[primitiveIndex] = ShaderIdentifier(hitgroupID);
-                primitiveIndex++;
-            }
-        }
+    //const void* raygenID = psoProps->GetShaderIdentifier(L"MyRaygenShader");
+    //const void* hitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup");
+    //const void* missID = psoProps->GetShaderIdentifier(L"MyMissShader");
+    //
+    //// Shader tables
+    //{
+    //    ShaderIdentifier raygenRecords[1] = { ShaderIdentifier(raygenID) };
 
-        StructuredBufferInit sbInit;
-        sbInit.stride = sizeof(ShaderIdentifier);
-        sbInit.numElements = hitRecords.size();
-        sbInit.initData = hitRecords.data();
-        sbInit.name = L"Hit Shader Table";
-        rtShadowHitTable.Initialize(sbInit);
-    }
+    //    StructuredBufferInit sbInit;
+    //    sbInit.stride = sizeof(ShaderIdentifier);
+    //    sbInit.numElements = _countof(raygenRecords);
+    //    sbInit.initData = raygenRecords;
+    //    sbInit.name = L"Raygen Shader Table";
+    //    rtShadowRaygenTable.Initialize(sbInit);
+    //}
+    //{
+    //    ShaderIdentifier missRecords[1] = { ShaderIdentifier(missID) };
 
-    psoProps->Release();
-    psoProps = nullptr;
+    //    StructuredBufferInit sbInit;
+    //    sbInit.stride = sizeof(ShaderIdentifier);
+    //    sbInit.numElements = _countof(missRecords);
+    //    sbInit.initData = missRecords;
+    //    sbInit.name = L"Miss Shader Table";
+    //    rtShadowMissTable.Initialize(sbInit);
+
+    //}
+    //{
+    //    const uint32_t numPrimitives = m_model.NumPrimitives();
+    //    uint32_t primitiveIndex = 0;
+    //    std::vector<ShaderIdentifier> hitRecords(numPrimitives);
+    //    const std::vector<MeshData>& meshes = m_model.Meshes();
+    //    for (const MeshData& mesh : meshes)
+    //    {
+    //        for (const PrimitiveData& primitive : mesh.primitives)
+    //        {
+    //            const MaterialData& material = m_model.Materials()[primitive.materialIndex];
+    //            const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
+
+    //            hitRecords[primitiveIndex] = ShaderIdentifier(hitgroupID);
+    //            primitiveIndex++;
+    //        }
+    //    }
+
+    //    StructuredBufferInit sbInit;
+    //    sbInit.stride = sizeof(ShaderIdentifier);
+    //    sbInit.numElements = hitRecords.size();
+    //    sbInit.initData = hitRecords.data();
+    //    sbInit.name = L"Hit Shader Table";
+    //    rtShadowHitTable.Initialize(sbInit);
+    //}
+
+    //psoProps->Release();
+    //psoProps = nullptr;
 }
 
 void RenderApplication::CreateRTAccelerationStructure()
@@ -1232,8 +1239,8 @@ void RenderApplication::DispatchRaytracing()
     }
 
     commandList->SetComputeRootSignature(raytraceRootSignature.Get());
-    //commandList->SetPipelineState(raytraceShadowPSO.Get());
-    commandList->SetPipelineState1(rtShadowPSO.Get());
+    commandList->SetPipelineState(raytraceShadowPSO.Get());
+    //commandList->SetPipelineState1(rtShadowPSO.Get());
 
     const MeshResources& meshResource = m_model.MeshResource();
 
@@ -1245,15 +1252,15 @@ void RenderApplication::DispatchRaytracing()
     m_sceneCB.SetAsComputeRootParameter(commandList.Get(), 3);
     m_lightCB.SetAsComputeRootParameter(commandList.Get(), 4); 
 
-    //commandList->Dispatch((m_width + 7) / 8, (m_height + 7) / 8, 1);
-    D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
+    commandList->Dispatch((m_width + 7) / 8, (m_height + 7) / 8, 1);
+    /*D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
     dispatchDesc.HitGroupTable = rtShadowHitTable.ShaderTable();
     dispatchDesc.MissShaderTable = rtShadowMissTable.ShaderTable();
     dispatchDesc.RayGenerationShaderRecord = rtShadowRaygenTable.ShaderRecord(0);
     dispatchDesc.Width = m_width;
     dispatchDesc.Height = m_height;
     dispatchDesc.Depth = 1;
-    commandList->DispatchRays(&dispatchDesc);
+    commandList->DispatchRays(&dispatchDesc);*/
 
     {
         D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
@@ -1313,9 +1320,13 @@ void RenderApplication::CopyRaytracingToBackBuffer()
 {
     D3D12_RESOURCE_BARRIER barrier = {};
 
-    barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+    /*barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         backBuffer[m_frameIndex].texture.resource.Get(),
         D3D12_RESOURCE_STATE_PRESENT,
+        D3D12_RESOURCE_STATE_COPY_DEST);*/
+    barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        backBuffer[m_frameIndex].texture.resource.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET,
         D3D12_RESOURCE_STATE_COPY_DEST);
     
     commandList->ResourceBarrier(1, &barrier);
@@ -1348,7 +1359,7 @@ void RenderApplication::PopulateCommandList()
         ImGui::Begin("Hello, world!");
 
         ImGui::Text("This is some useful text.");
-        ImGui::Checkbox("Another window", &show_another_window);
+        ImGui::Checkbox("RTBuffer", &show_another_window);
 
         ImGui::Text("Camera");
         ImGui::SliderFloat("MoveSpeed", &m_moveSpeed, 1.f, 1000.f);
@@ -1370,14 +1381,14 @@ void RenderApplication::PopulateCommandList()
         ImGui::End();
     }
 
-    if (show_another_window)
+    /*if (show_another_window)
     {
         ImGui::Begin("Another window", &show_another_window);
         ImGui::Text("Hello from another window");
         if (ImGui::Button("Close Me"))
             show_another_window = false;
         ImGui::End();
-    }
+    }*/
     // Render
     ImGui::Render();
 
@@ -1493,7 +1504,10 @@ void RenderApplication::PopulateCommandList()
         DispatchRaytracing();
         //RenderRaytracing();
 
-        //CopyRaytracingToBackBuffer();
+        if (show_another_window)
+        {
+            CopyRaytracingToBackBuffer();
+        }
     }
 
     // ImGui

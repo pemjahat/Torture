@@ -22,7 +22,6 @@ struct SceneConstantBuffer
     XMMATRIX WorldView;
     XMMATRIX WorldViewProj;
     XMMATRIX ProjToWorld;
-    XMMATRIX CamToWorld;
     XMVECTOR CamPosition;
     XMFLOAT2 InvTextureSize;
     XMUINT2 RayDimension;
