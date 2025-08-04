@@ -1,0 +1,32 @@
+GBufferRenderer
+- FullscreenPass VS,PS,RootSignature, PSO
+- Deferred lighting
+- move GBuffer RTs out of bindless. just manually bind them.
+- use ResourceDescriptorHeap for bindless material textures. see: https://microsoft.github.io/DirectX-Specs/d3d/HLSL_SM_6_6_DynamicResources.html
+
+Parallel command list recording
+
+On-demand PSO creation/caching
+
+Load Bistro map
+- take from: https://github.com/zeux/niagara_bistro
+- need DSS Textures support. refer from: https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/MiniEngine/Core/DDSTextureLoader.cpp
+
+ComputeShader ready
+- Dispatch indirect
+- https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/Samples/Desktop/D3D12ExecuteIndirect
+
+Meshlet
+- https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/Samples/Desktop/D3D12MeshShaders
+
+Shader hot reloading
+
+Reference PathTracer
+- https://github.com/TheRealMJP/DXRPathTracer
+
+Ray Traced shadows
+- https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingMiniEngineSample/readme.md
+
+Reservoir (RTXDI & RTXGI)
+- https://github.com/NVIDIA-RTX/RTXDI/
+- https://github.com/NVIDIA-RTX/RTXGI

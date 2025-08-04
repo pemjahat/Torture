@@ -19,7 +19,7 @@ static D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange = {};
 void InitializeHelper()
 {
 	// Descriptor heap
-	rtvDescriptorHeap.Initialize(5, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	rtvDescriptorHeap.Initialize(10, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	dsvDescriptorHeap.Initialize(1, D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 	srvDescriptorHeap.Initialize(1024, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
@@ -38,7 +38,6 @@ void InitializeHelper()
 		rasterDesc.DepthClipEnable = true;
 		rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
 		rasterDesc.MultisampleEnable = false;
-		rasterDesc.FrontCounterClockwise = true; // Matches glTF CCW convention
 	}
 	{
 		D3D12_RASTERIZER_DESC& rasterDesc = RasterizerStateDesc[uint32_t(RasterizerState::BackfaceCull)];
@@ -46,7 +45,6 @@ void InitializeHelper()
 		rasterDesc.DepthClipEnable = true;
 		rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
 		rasterDesc.MultisampleEnable = false;
-		rasterDesc.FrontCounterClockwise = true; // Matches glTF CCW convention
 	}
 
 	// Depth Stencil state
@@ -220,20 +218,25 @@ void CompileShaderFromFile(
 	LPCWSTR arguments[] =
 	{
 		L"-E", functionName.c_str(),
-		L"-T", L"vs_6_0",
-		L"-Zi",
+		L"-T", L"vs_6_5",
+		L"-Zi", L"-WX",
 		L"-I", includePath.c_str()
 	};
 
 	if (type == ShaderType::Pixel)
 	{
 		// Compile arguments
-		arguments[3] = L"ps_6_0";
+		arguments[3] = L"ps_6_5";
 	}
 	else if (type == ShaderType::Compute)
 	{
 		// Compile arguments
-		arguments[3] = L"cs_6_0";
+		arguments[3] = L"cs_6_5";
+	}
+	else if (type == ShaderType::Library)
+	{
+		arguments[1] = L"";
+		arguments[3] = L"lib_6_5";
 	}
 
 	Microsoft::WRL::ComPtr<IDxcResult> compileResult;
@@ -251,4 +254,50 @@ void CompileShaderFromFile(
 	{
 		compileResult->GetResult(shaderBlob.GetAddressOf());
 	}
+}
+
+//
+// Raytrace
+//
+static const uint64_t MaxSubObjectDescSize = sizeof(D3D12_HIT_GROUP_DESC);
+
+void StateObjectBuilder::Init(uint64_t max)
+{
+	maxSubObjects = max;
+	subObjectData.resize(maxSubObjects * MaxSubObjectDescSize, 0);
+
+	D3D12_STATE_SUBOBJECT defSubObj = {};
+	subObjects.resize(maxSubObjects, defSubObj);
+}
+
+const D3D12_STATE_SUBOBJECT* StateObjectBuilder::AddSubObject(const void* subObjDesc, uint64_t subObjDescSize, D3D12_STATE_SUBOBJECT_TYPE type)
+{
+	const uint64_t subObjOffset = numSubObjects * MaxSubObjectDescSize;
+	memcpy(subObjectData.data() + subObjOffset, subObjDesc, subObjDescSize);
+
+	D3D12_STATE_SUBOBJECT& newSubObj = subObjects[numSubObjects];
+	newSubObj.Type = type;
+	newSubObj.pDesc = subObjectData.data() + subObjOffset;
+
+	numSubObjects += 1;
+
+	return &newSubObj;
+}
+
+void StateObjectBuilder::BuildDesc(D3D12_STATE_OBJECT_TYPE type, D3D12_STATE_OBJECT_DESC& desc)
+{
+	desc.Type = type;
+	desc.NumSubobjects = uint32_t(numSubObjects);
+	desc.pSubobjects = numSubObjects ? subObjects.data() : nullptr;
+}
+
+ID3D12StateObject* StateObjectBuilder::CreateStateObject(D3D12_STATE_OBJECT_TYPE type)
+{
+	D3D12_STATE_OBJECT_DESC desc = {};
+	BuildDesc(type, desc);
+
+	ID3D12StateObject* stateObj = nullptr;
+	CheckHRESULT(d3dDevice->CreateStateObject(&desc, IID_PPV_ARGS(&stateObj)));
+
+	return stateObj;
 }

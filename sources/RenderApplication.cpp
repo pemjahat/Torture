@@ -78,7 +78,7 @@ RenderApplication::RenderApplication(int argc, char** argv) :
 
 void RenderApplication::OnInit(SDL_Window* window)
 {
-    m_camera.Init({ 0, 0.f, 10 });
+    m_camera.Init({ 0.0f, 5.3f, -10.0f});
     m_camera.SetMoveSpeed(m_moveSpeed);
 
     // Light
@@ -88,7 +88,8 @@ void RenderApplication::OnInit(SDL_Window* window)
     XMStoreFloat3(&m_directionalLight.direction, v);
 
     m_directionalLight.intensity = 1.f;
-    m_directionalLight.color = XMFLOAT3(1.f, 1.f, 1.f);
+    XMFLOAT4 lightDiffuseColor = XMFLOAT4(0.5f, 0.0f, 0.0f, 1.0f);
+    m_directionalLight.color = XMLoadFloat4(&lightDiffuseColor);
 
     LoadPipeline();
     LoadAsset(window);
@@ -104,6 +105,271 @@ std::wstring RenderApplication::GetAssetFullPath(const std::string& relativePath
     std::filesystem::path absolutePath = baseDir / relativePath;
 
     return std::filesystem::absolute(absolutePath).wstring();
+}
+
+void RenderApplication::CreateRT()
+{
+    // Compile raytrace library shader
+    std::filesystem::path exePath = std::filesystem::absolute(m_executablePath);
+    std::filesystem::path baseDir = exePath.parent_path().parent_path();
+    std::filesystem::path shaderPath = baseDir / "shaders";
+    
+    std::filesystem::path rtLibShader = shaderPath / "raytracing.hlsl";
+    CompileShaderFromFile(
+        std::filesystem::absolute(rtLibShader).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        L"",
+        raytraceLib,
+        ShaderType::Library);
+
+    D3D12_ROOT_PARAMETER1 rootParameters[10] = {};
+    // Acceleration structure
+    rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[0].Descriptor.RegisterSpace = 0;
+    rootParameters[0].Descriptor.ShaderRegister = 0;
+    rootParameters[0].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    // Indices
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[1].Descriptor.RegisterSpace = 0;
+    rootParameters[1].Descriptor.ShaderRegister = 1;
+    rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    // Vertices
+    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[2].Descriptor.RegisterSpace = 0;
+    rootParameters[2].Descriptor.ShaderRegister = 2;
+    rootParameters[2].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    
+    // Geometry + Material info
+    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[3].Descriptor.RegisterSpace = 0;
+    rootParameters[3].Descriptor.ShaderRegister = 3;
+    rootParameters[3].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[4].Descriptor.RegisterSpace = 0;
+    rootParameters[4].Descriptor.ShaderRegister = 4;
+    rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    D3D12_DESCRIPTOR_RANGE1 srvRanges[1] = {};
+    srvRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvRanges[0].NumDescriptors = 1;
+    srvRanges[0].BaseShaderRegister = 5;
+    srvRanges[0].RegisterSpace = 0;
+    srvRanges[0].OffsetInDescriptorsFromTableStart = 0;
+    rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[5].DescriptorTable.pDescriptorRanges = srvRanges;
+    rootParameters[5].DescriptorTable.NumDescriptorRanges = _countof(srvRanges);
+
+    // Bindless
+    rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[6].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
+    rootParameters[6].DescriptorTable.NumDescriptorRanges = 1;
+
+    // UAV
+    D3D12_DESCRIPTOR_RANGE1 uavRanges[1] = {};
+    uavRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    uavRanges[0].NumDescriptors = 1;
+    uavRanges[0].BaseShaderRegister = 0;
+    uavRanges[0].RegisterSpace = 0;
+    uavRanges[0].OffsetInDescriptorsFromTableStart = 0;
+    rootParameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[7].DescriptorTable.pDescriptorRanges = uavRanges;
+    rootParameters[7].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
+
+    // Scene + Light 
+    rootParameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[8].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[8].Descriptor.RegisterSpace = 0;
+    rootParameters[8].Descriptor.ShaderRegister = 0;
+    rootParameters[8].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    rootParameters[9].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[9].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[9].Descriptor.RegisterSpace = 0;
+    rootParameters[9].Descriptor.ShaderRegister = 1;
+    rootParameters[9].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    // Static sampler
+    D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
+    staticSampler[0] = GetStaticSamplerState(SamplerState::Linear, 0, 0);
+
+    D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
+    rootSignatureDesc.NumParameters = _countof(rootParameters);
+    rootSignatureDesc.pParameters = rootParameters;
+    rootSignatureDesc.NumStaticSamplers = _countof(staticSampler);
+    rootSignatureDesc.pStaticSamplers = staticSampler;
+
+    CreateRootSignature(rtRootSignature, rootSignatureDesc);
+}
+
+void RenderApplication::CreateRTPipelineStateObject()
+{
+    // Create 7 subobjects that combine into a RTPSO:
+    // Subobjects need to be associated with DXIL exports (i.e. shaders) either by way of default or explicit associations.
+    // Default association applies to every exported shader entrypoint that doesn't have any of the same type of subobject associated with it.
+    // This simple sample utilizes default shader association except for local root signature subobject
+    // which has an explicit association specified purely for demonstration purposes.
+    // 1 - DXIL library
+    // 1 - Triangle hit group
+    // 1 - Shader config
+    // 2 - Local root signature and association
+    // 1 - Global root signature
+    // 1 - Pipeline config
+
+    StateObjectBuilder builder;
+    builder.Init(9);
+
+    {
+        // DXIL
+        D3D12_DXIL_LIBRARY_DESC dxilDesc = {};
+        dxilDesc.DXILLibrary = { raytraceLib->GetBufferPointer(), raytraceLib->GetBufferSize() };
+        builder.AddSubObject(dxilDesc);
+    }
+    {
+        // Closest hit (Radiance)
+        D3D12_HIT_GROUP_DESC hitDesc = {};
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hitDesc.ClosestHitShaderImport = L"MyClosestHitShader";
+        hitDesc.HitGroupExport = L"MyHitGroup_Radiance";
+        builder.AddSubObject(hitDesc);
+    }
+    {
+        // Alpha test
+        D3D12_HIT_GROUP_DESC hitDesc = {};
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hitDesc.ClosestHitShaderImport = L"MyClosestHitShader";
+        hitDesc.AnyHitShaderImport = L"MyAnyHitShader";
+        hitDesc.HitGroupExport = L"MyHitGroup_AlphaTest";
+        builder.AddSubObject(hitDesc);
+    }
+    {
+        // Closest hit (Shadow)
+        D3D12_HIT_GROUP_DESC hitDesc = {};
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;        
+        hitDesc.HitGroupExport = L"MyHitGroup_Shadow";
+        builder.AddSubObject(hitDesc);
+    }
+    {
+        // Alpha test (shadow)
+        D3D12_HIT_GROUP_DESC hitDesc = {};
+        hitDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+        hitDesc.AnyHitShaderImport = L"MyAnyHitShader_Shadow";
+        hitDesc.HitGroupExport = L"MyHitGroup_AlphaTestShadow";
+        builder.AddSubObject(hitDesc);
+    }
+    {
+        D3D12_RAYTRACING_SHADER_CONFIG shaderConfig = {};
+        UINT payloadSize = std::max(sizeof(RayPayload), sizeof(ShadowRayPayload));
+        shaderConfig.MaxAttributeSizeInBytes = 2 * sizeof(float); //float2 barrycentric
+        shaderConfig.MaxPayloadSizeInBytes = payloadSize;
+        builder.AddSubObject(shaderConfig);
+    }
+    {
+        D3D12_GLOBAL_ROOT_SIGNATURE globalRSDesc = {};
+        globalRSDesc.pGlobalRootSignature = rtRootSignature.Get();
+        builder.AddSubObject(globalRSDesc);
+    }
+    {
+        D3D12_RAYTRACING_PIPELINE_CONFIG configDesc = {};
+        configDesc.MaxTraceRecursionDepth = 1; //MAX_RECURSION_DEPTH;  // Primary ray only
+        builder.AddSubObject(configDesc);
+    }
+
+    rtPipelineState = builder.CreateStateObject(D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
+
+    // Shader identifier for making shader record
+    ID3D12StateObjectProperties* psoProps = nullptr;
+    rtPipelineState->QueryInterface(IID_PPV_ARGS(&psoProps));
+
+    const void* raygenID = psoProps->GetShaderIdentifier(L"MyRaygenShader");
+    const void* missID = psoProps->GetShaderIdentifier(L"MyMissShader");
+    const void* shadowMissID = psoProps->GetShaderIdentifier(L"MyMissShader_Shadow");
+    const void* hitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_Radiance");
+    const void* alphaTestHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_AlphaTest");
+    const void* shadowHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_Shadow");
+    const void* shadowAlphaTestHitgroupID = psoProps->GetShaderIdentifier(L"MyHitGroup_AlphaTestShadow");
+    // Shader tables
+    {
+        ShaderIdentifier raygenRecords[1] = { ShaderIdentifier(raygenID) };
+
+        StructuredBufferInit sbInit;
+        sbInit.stride = sizeof(ShaderIdentifier);
+        sbInit.numElements = _countof(raygenRecords);
+        sbInit.initData = raygenRecords;
+        sbInit.name = L"Raygen Shader Table";
+        rtRayGenTable.Initialize(sbInit);
+    }
+    {
+        ShaderIdentifier missRecords[2] = { ShaderIdentifier(missID), ShaderIdentifier(shadowMissID) };
+
+        StructuredBufferInit sbInit;
+        sbInit.stride = sizeof(ShaderIdentifier);
+        sbInit.numElements = _countof(missRecords);
+        sbInit.initData = missRecords;
+        sbInit.name = L"Miss Shader Table";
+        rtMissTable.Initialize(sbInit);
+    }
+    {
+        const uint32_t numPrimitives = m_model.NumPrimitives();
+        uint32_t primitiveIndex = 0;
+        std::vector<ShaderIdentifier> hitRecords(2 * numPrimitives);
+        const std::vector<MeshData>& meshes = m_model.Meshes();
+        for (const MeshData& mesh : meshes)
+        {
+            for (const PrimitiveData& primitive : mesh.primitives)
+            {
+                const MaterialData& material = m_model.Materials()[primitive.materialIndex];
+                const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
+
+                hitRecords[primitiveIndex * 2 + 0] = nonOpaque ? ShaderIdentifier(alphaTestHitgroupID) : ShaderIdentifier(hitgroupID);
+                hitRecords[primitiveIndex * 2 + 1] = nonOpaque ? ShaderIdentifier(shadowAlphaTestHitgroupID) : ShaderIdentifier(shadowHitgroupID);
+                primitiveIndex++;
+            }
+        }
+
+        StructuredBufferInit sbInit;
+        sbInit.stride = sizeof(ShaderIdentifier);
+        sbInit.numElements = hitRecords.size();
+        sbInit.initData = hitRecords.data();
+        sbInit.name = L"Hit Shader Table";
+        rtHitTable.Initialize(sbInit);
+    }
+
+    psoProps->Release();
+    psoProps = nullptr;
+}
+
+void RenderApplication::CreateRTShadowPSO()
+{
+    std::filesystem::path exePath = std::filesystem::absolute(m_executablePath);
+    std::filesystem::path baseDir = exePath.parent_path().parent_path();
+    std::filesystem::path shaderPath = baseDir / "shaders";
+
+    std::filesystem::path raytraceShadow = shaderPath / "raytracing_shadow.hlsl";
+    CompileShaderFromFile(
+        std::filesystem::absolute(raytraceShadow).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        L"ShadowRayCompute",
+        raytraceShadowCS,
+        ShaderType::Compute);
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.pRootSignature = rtRootSignature.Get();
+    psoDesc.CS = { raytraceShadowCS->GetBufferPointer(), raytraceShadowCS->GetBufferSize() };
+    CheckHRESULT(d3dDevice->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&rtShadowPSO)));
+}
+
+void RenderApplication::CreateRTAccelerationStructure()
+{
+    m_model.BuildAccelerationStructure();
 }
 
 void RenderApplication::LoadPipeline()
@@ -253,9 +519,11 @@ void RenderApplication::LoadAsset(SDL_Window* window)
             deferredPS,
             ShaderType::Pixel);
 
-        D3D12_ROOT_PARAMETER1 rootParameters[3] = {};
+        
 
-        // GBuffer RTarget
+        D3D12_ROOT_PARAMETER1 rootParameters[4] = {};
+
+        // Bindless
         rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
         rootParameters[0].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
@@ -274,6 +542,17 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         rootParameters[2].Constants.Num32BitValues = 3;
         rootParameters[2].Constants.RegisterSpace = 0;
         rootParameters[2].Constants.ShaderRegister = 1;
+
+        D3D12_DESCRIPTOR_RANGE1 srvRanges[1] = {};
+        srvRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srvRanges[0].NumDescriptors = 1;
+        srvRanges[0].BaseShaderRegister = 0;
+        srvRanges[0].RegisterSpace = 0;
+        srvRanges[0].OffsetInDescriptorsFromTableStart = 0;
+        rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[3].DescriptorTable.pDescriptorRanges = srvRanges;
+        rootParameters[3].DescriptorTable.NumDescriptorRanges = _countof(srvRanges);
 
         // Static sampler
         D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
@@ -474,6 +753,10 @@ void RenderApplication::LoadAsset(SDL_Window* window)
     m_model.LoadShader(shaderPath);
     m_model.CreatePSO();
     m_model.UploadGpuResources();
+    CreateRT();
+    CreateRTShadowPSO();
+    CreateRTPipelineStateObject();
+    CreateRTAccelerationStructure();
 
     // ImGui
     // ImGui Renderer backend
@@ -526,11 +809,18 @@ void RenderApplication::OnUpdate()
     // DirectXMath library is row major matrices
     // Hlsl by default is column major matrices
     // Either use row_major explicitly on hlsl, or compile shader with ROW_MAJOR, or use XMMatrixTranspose
-    XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
+    /*XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
     XMStoreFloat4x4(&m_constantBufferData.WorldView, XMMatrixTranspose(world * view));
-    XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));
+    XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));*/
+
+    m_constantBufferData.World = world;
+    m_constantBufferData.WorldView = world * view;
+    m_constantBufferData.WorldViewProj = world * view * proj;
+    m_constantBufferData.ProjToWorld = XMMatrixInverse(nullptr, view * proj);
+
+    m_constantBufferData.CamPosition = m_camera.GetPosition();
     m_constantBufferData.InvTextureSize = XMFLOAT2(1.f / static_cast<float>(m_width), 1.f / static_cast<float>(m_height));
-    m_constantBufferData.HiZDimension = XMFLOAT2(static_cast<float>(m_width), static_cast<float>(m_height));
+    m_constantBufferData.RayDimension = XMUINT2(m_width, m_height);
 
     // Constant buffer created with upload heap
     // Need to map buffer once during creation, udpate directly in mapped memory
@@ -538,6 +828,9 @@ void RenderApplication::OnUpdate()
     m_sceneCB.MapAndSetData(&m_constantBufferData, sizeof(SceneConstantBuffer));
 
     m_directionalLight.direction = PolarToCartesian(m_azimuth, m_elevation);
+
+    XMFLOAT4 lightAmbientColor = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
+    m_directionalLight.ambient = XMLoadFloat4(&lightAmbientColor);
 
     m_lightCB.MapAndSetData(&m_directionalLight, sizeof(LightData));
 }
@@ -628,6 +921,17 @@ void RenderApplication::CreateRenderTargets()
         dbi.format = DXGI_FORMAT_D32_FLOAT;
         depthBuffer.Initialize(dbi);
     }
+    // RT Buffer
+    {
+        RenderTextureInit rti;
+        rti.width = m_width;
+        rti.height = m_height;
+        rti.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rti.allowUAV = true;
+        //rti.initState = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        rti.initState = D3D12_RESOURCE_STATE_GENERIC_READ;
+        rtBuffer.Initialize(rti);
+    }
 }
 
 void RenderApplication::RenderGBuffer(const DirectX::BoundingFrustum& frustum)
@@ -706,6 +1010,7 @@ void RenderApplication::RenderDeferred(const ConstantBuffer* lightCB)
     commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
     SrvSetAsGfxRootParameter(commandList.Get(), 0);
     lightCB->SetAsGfxRootParameter(commandList.Get(), 1);
+    commandList->SetGraphicsRootDescriptorTable(3, rtBuffer.srv);
 
     // Constant
     uint32_t constant[3] = { albedoBuffer.texture.SRV, normalBuffer.texture.SRV, materialBuffer.texture.SRV };
@@ -715,6 +1020,122 @@ void RenderApplication::RenderDeferred(const ConstantBuffer* lightCB)
     commandList->IASetIndexBuffer(nullptr);
     commandList->IASetVertexBuffers(0, 0, nullptr);
     commandList->DrawInstanced(3, 1, 0, 0);
+}
+
+void RenderApplication::DispatchRaytracing()
+{
+    {
+        D3D12_RESOURCE_BARRIER barriers[2] = {};
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+            depthBuffer.texture.resource.Get(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+            rtBuffer.texture.resource.Get(),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        commandList->ResourceBarrier(_countof(barriers), barriers);
+    }
+
+    commandList->SetComputeRootSignature(rtRootSignature.Get());
+    commandList->SetPipelineState(rtShadowPSO.Get());
+
+    const StructuredBuffer& materialBuffer = m_model.MaterialBuffer();
+    const MeshResources& meshResource = m_model.MeshResource();
+
+    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
+    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+    
+    commandList->SetComputeRootShaderResourceView(0, meshResource.tlasBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(1, meshResource.indexBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(2, meshResource.vertexBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(3, meshResource.instanceInfoBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(4, materialBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootDescriptorTable(5, depthBuffer.srv);
+    SrvSetAsComputeRootParameter(commandList.Get(), 6);
+    commandList->SetComputeRootDescriptorTable(7, rtBuffer.uavGpuAddress);
+    m_sceneCB.SetAsComputeRootParameter(commandList.Get(), 8);
+    m_lightCB.SetAsComputeRootParameter(commandList.Get(), 9);
+
+    commandList->Dispatch((m_width + 7) / 8, (m_height + 7) / 8, 1);
+
+    {
+        D3D12_RESOURCE_BARRIER barriers[2] = {};
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
+            depthBuffer.texture.resource.Get(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+            rtBuffer.texture.resource.Get(),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_GENERIC_READ);
+        commandList->ResourceBarrier(_countof(barriers), barriers);
+    }
+}
+
+void RenderApplication::RenderRaytracing()
+{
+    commandList->SetComputeRootSignature(rtRootSignature.Get());
+    commandList->SetPipelineState1(rtPipelineState.Get());
+
+    const StructuredBuffer& materialBuffer = m_model.MaterialBuffer();
+    const MeshResources& meshResource = m_model.MeshResource();
+
+    // Bind
+    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
+    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+    commandList->SetComputeRootShaderResourceView(0, meshResource.tlasBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(1, meshResource.indexBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(2, meshResource.vertexBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(3, meshResource.instanceInfoBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(4, materialBuffer.internalBuffer.gpuAddress);
+
+    SrvSetAsComputeRootParameter(commandList.Get(), 5);
+    commandList->SetComputeRootDescriptorTable(6, rtBuffer.uavGpuAddress);    
+    m_sceneCB.SetAsComputeRootParameter(commandList.Get(), 7);
+    m_lightCB.SetAsComputeRootParameter(commandList.Get(), 8);
+
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        rtBuffer.texture.resource.Get(),
+        D3D12_RESOURCE_STATE_COPY_SOURCE,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    commandList->ResourceBarrier(1, &barrier);
+
+    D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
+    dispatchDesc.HitGroupTable = rtHitTable.ShaderTable();
+    dispatchDesc.MissShaderTable = rtMissTable.ShaderTable();
+    dispatchDesc.RayGenerationShaderRecord = rtRayGenTable.ShaderRecord(0);
+    dispatchDesc.Width = m_width;
+    dispatchDesc.Height = m_height;
+    dispatchDesc.Depth = 1;
+    commandList->DispatchRays(&dispatchDesc);
+
+    barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        rtBuffer.texture.resource.Get(),
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_COPY_SOURCE);
+    commandList->ResourceBarrier(1, &barrier);
+}
+
+void RenderApplication::CopyRaytracingToBackBuffer()
+{
+    D3D12_RESOURCE_BARRIER barrier = {};
+
+    barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        backBuffer[m_frameIndex].texture.resource.Get(),
+        D3D12_RESOURCE_STATE_PRESENT,
+        D3D12_RESOURCE_STATE_COPY_DEST);
+    
+    commandList->ResourceBarrier(1, &barrier);
+    commandList->CopyResource(backBuffer[m_frameIndex].texture.resource.Get(), rtBuffer.texture.resource.Get());
+
+    barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        backBuffer[m_frameIndex].texture.resource.Get(),
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_STATE_RENDER_TARGET);
+    commandList->ResourceBarrier(1, &barrier);
 }
 
 void RenderApplication::PopulateCommandList()
@@ -737,7 +1158,7 @@ void RenderApplication::PopulateCommandList()
         ImGui::Begin("Hello, world!");
 
         ImGui::Text("This is some useful text.");
-        ImGui::Checkbox("Another window", &show_another_window);
+        ImGui::Checkbox("RTBuffer", &show_another_window);
 
         ImGui::Text("Camera");
         ImGui::SliderFloat("MoveSpeed", &m_moveSpeed, 1.f, 1000.f);
@@ -759,14 +1180,14 @@ void RenderApplication::PopulateCommandList()
         ImGui::End();
     }
 
-    if (show_another_window)
+    /*if (show_another_window)
     {
         ImGui::Begin("Another window", &show_another_window);
         ImGui::Text("Hello from another window");
         if (ImGui::Button("Close Me"))
             show_another_window = false;
         ImGui::End();
-    }
+    }*/
     // Render
     ImGui::Render();
 
@@ -784,7 +1205,7 @@ void RenderApplication::PopulateCommandList()
         commandList->ClearDepthStencilView(depthBuffer.dsv, D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
 
         m_model.RenderDepthOnly(
-            &m_sceneCB,            
+            &m_sceneCB,
             frustum);
 
         // Temporary
@@ -858,28 +1279,44 @@ void RenderApplication::PopulateCommandList()
 
         //m_commandList->ResourceBarrier(2, barriers);
     }
+    
     // Main pass
     {
         RenderGBuffer(frustum);
+        // Raytrace shadow
+        DispatchRaytracing();
 
-        D3D12_RESOURCE_BARRIER barrier = {};
-        barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-            backBuffer[m_frameIndex].texture.resource.Get(),
-            D3D12_RESOURCE_STATE_PRESENT,
-            D3D12_RESOURCE_STATE_RENDER_TARGET);
+        if (show_another_window)
+        {
+            CopyRaytracingToBackBuffer();
+        }
+        else
+        {
+            D3D12_RESOURCE_BARRIER barrier = {};
+            barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+                backBuffer[m_frameIndex].texture.resource.Get(),
+                D3D12_RESOURCE_STATE_PRESENT,
+                D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-        commandList->ResourceBarrier(1, &barrier);
+            commandList->ResourceBarrier(1, &barrier);
 
-        commandList->OMSetRenderTargets(1, &backBuffer[m_frameIndex].rtv, false, nullptr);
+            commandList->OMSetRenderTargets(1, &backBuffer[m_frameIndex].rtv, false, nullptr);
 
-        const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
-        commandList->ClearRenderTargetView(backBuffer[m_frameIndex].rtv, clear_color_with_alpha, 0, nullptr);
+            const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
+            commandList->ClearRenderTargetView(backBuffer[m_frameIndex].rtv, clear_color_with_alpha, 0, nullptr);
 
-        RenderDeferred(&m_lightCB);
+            RenderDeferred(&m_lightCB);
+        }
+    }
+    // Ray tracing
+    {
+        //RenderRaytracing();
     }
 
     // ImGui
     {
+        commandList->OMSetRenderTargets(1, &backBuffer[m_frameIndex].rtv, false, nullptr);
+
         ID3D12DescriptorHeap* ppDescHeaps[] = { m_imguiDescHeap.Get() };
         commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());

@@ -75,15 +75,21 @@ void DescriptorHeap::Free(uint32_t& index)
 
 void DescriptorHeap::Free(D3D12_CPU_DESCRIPTOR_HANDLE handle)
 {
-	uint32_t idx = IndexFromHandle(handle);
-	Free(idx);
+	if (handle.ptr != 0)
+	{
+		uint32_t idx = IndexFromHandle(handle);
+		Free(idx);
+	}
 }
 
 void DescriptorHeap::Free(D3D12_GPU_DESCRIPTOR_HANDLE handle)
 {
 	assert(shaderVisible);
-	uint32_t idx = IndexFromHandle(handle);
-	Free(idx);
+	if (handle.ptr != 0)
+	{
+		uint32_t idx = IndexFromHandle(handle);
+		Free(idx);
+	}
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::CPUHandleFromIndex(uint32_t descriptorIdx) const
@@ -119,7 +125,8 @@ uint32_t DescriptorHeap::IndexFromHandle(D3D12_GPU_DESCRIPTOR_HANDLE handle)
 void Buffer::Initialize(
 	uint64_t size, 
 	uint64_t alignment, 
-	bool cpuAccessible, 
+	bool cpuAccessible,
+	bool allowUAV,
 	const void* initData, 
 	D3D12_RESOURCE_STATES initState,
 	const wchar_t* name)
@@ -139,12 +146,19 @@ void Buffer::Initialize(
 	resourceDesc.SampleDesc.Quality = 0;
 	resourceDesc.Alignment = 0;
 	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	resourceDesc.Flags = allowUAV ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
+
+	D3D12_RESOURCE_STATES resourceState = initState;
+	if (cpuAccessible)
+		resourceState = D3D12_RESOURCE_STATE_GENERIC_READ;
+	else if (initData)
+		resourceState = D3D12_RESOURCE_STATE_COMMON;
 
 	CheckHRESULT(d3dDevice->CreateCommittedResource(
 		cpuAccessible ? &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD) : &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 		D3D12_HEAP_FLAG_NONE,
 		&resourceDesc,
-		cpuAccessible ? D3D12_RESOURCE_STATE_GENERIC_READ : D3D12_RESOURCE_STATE_COMMON,
+		resourceState,
 		nullptr,
 		IID_PPV_ARGS(&resource)));
 
@@ -157,7 +171,13 @@ void Buffer::Initialize(
 		D3D12_RANGE readRange = {};
 		resource->Map(0, &readRange, reinterpret_cast<void**>(&cpuAddress));
 	}
-	if (initData)
+
+	if (initData && cpuAccessible)
+	{
+		uint8_t* dstMem = cpuAddress;
+		memcpy(dstMem, initData, size);
+	}
+	else if (initData)
 	{
 		CheckHRESULT(d3dDevice->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
@@ -203,12 +223,20 @@ MapResult Buffer::Map()
 	return mapResult;
 }
 
+void Buffer::UAVBarrier(ID3D12GraphicsCommandList* cmdList) const
+{
+	D3D12_RESOURCE_BARRIER barrier = {};
+	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+	barrier.UAV.pResource = resource.Get();
+	cmdList->ResourceBarrier(1, &barrier);
+}
 //
 // Constant Buffer
 //
 void ConstantBuffer::Initialize(const ConstantBufferInit& init)
 {
-	internalBuffer.Initialize(init.size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, init.cpuAccessible, nullptr, D3D12_RESOURCE_STATE_GENERIC_READ, init.name);
+	internalBuffer.Initialize(init.size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, init.cpuAccessible, false, nullptr, D3D12_RESOURCE_STATE_GENERIC_READ, init.name);
 }
 
 void ConstantBuffer::Shutdown()
@@ -240,10 +268,10 @@ void StructuredBuffer::Initialize(const StructuredBufferInit& init)
 	assert(init.stride > 0);
 	assert(init.numElements > 0);
 
-	stride = init.stride;
-	numElements = init.numElements;
+	Stride = init.stride;
+	NumElements = init.numElements;
 
-	internalBuffer.Initialize(stride * numElements, stride, false, init.initData, init.initState, init.name);
+	internalBuffer.Initialize(Stride * NumElements, Stride, init.cpuAccessible, false, init.initData, init.initState, init.name);
 
 	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
 	SRV = srvAlloc.descriptorIndex;
@@ -254,8 +282,8 @@ void StructuredBuffer::Initialize(const StructuredBufferInit& init)
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.Buffer.FirstElement = 0;
 	srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-	srvDesc.Buffer.NumElements = numElements;
-	srvDesc.Buffer.StructureByteStride = stride;
+	srvDesc.Buffer.NumElements = NumElements;
+	srvDesc.Buffer.StructureByteStride = Stride;
 	d3dDevice->CreateShaderResourceView(internalBuffer.resource.Get(), &srvDesc, srvAlloc.cpuHandle);
 }
 
@@ -264,20 +292,6 @@ void StructuredBuffer::Shutdown()
 	srvDescriptorHeap.Free(SRV);
 	internalBuffer.Shutdown();
 }
-//
-//void StructuredBuffer::SetAsGfxRootParameterTable(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter)
-//{
-//	assert(SRV != uint32_t(-1));
-//	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
-//	cmdList->SetGraphicsRootDescriptorTable(rootParameter, handle);
-//}
-//
-//void StructuredBuffer::SetAsComputeRootParameterTable(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter)
-//{
-//	assert(SRV != uint32_t(-1));
-//	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap.GPUHandleFromIndex(SRV);
-//	cmdList->SetComputeRootDescriptorTable(rootParameter, handle);
-//}
 
 void StructuredBuffer::SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const
 {
@@ -297,11 +311,31 @@ D3D12_VERTEX_BUFFER_VIEW StructuredBuffer::VBView() const
 {
 	D3D12_VERTEX_BUFFER_VIEW vbView = {};
 	vbView.BufferLocation = internalBuffer.gpuAddress;
-	vbView.StrideInBytes = stride;
-	vbView.SizeInBytes = stride * numElements;
+	vbView.StrideInBytes = Stride;
+	vbView.SizeInBytes = Stride * NumElements;
 	return vbView;
 }
 
+D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE StructuredBuffer::ShaderTable(uint64_t startElement, uint64_t numElements) const
+{
+	numElements = std::min(numElements, NumElements - startElement);
+
+	D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE result = {};
+	result.StartAddress = internalBuffer.gpuAddress + Stride * startElement;
+	result.SizeInBytes = numElements * Stride;
+	result.StrideInBytes = Stride;
+
+	return result;
+}
+
+D3D12_GPU_VIRTUAL_ADDRESS_RANGE StructuredBuffer::ShaderRecord(uint64_t element) const
+{
+	D3D12_GPU_VIRTUAL_ADDRESS_RANGE result = {};
+	result.StartAddress = internalBuffer.gpuAddress + Stride * element;
+	result.SizeInBytes = Stride;
+
+	return result;
+}
 //
 // Formatted Buffer
 //
@@ -309,11 +343,11 @@ void FormattedBuffer::Initialize(const FormattedBufferInit& init)
 {
 	assert(init.format != DXGI_FORMAT_UNKNOWN);
 	assert(init.numElements > 0);
-	stride = init.bitSize / 8;
-	numElements = init.numElements;
+	Stride = init.bitSize / 8;
+	NumElements = init.numElements;
 	format = init.format;
 
-	internalBuffer.Initialize(stride * numElements, stride, false, init.initData, init.initState, init.name);
+	internalBuffer.Initialize(Stride * NumElements, Stride, init.cpuAccessible, false, init.initData, init.initState, init.name);
 }
 
 void FormattedBuffer::Shutdown()
@@ -327,8 +361,53 @@ D3D12_INDEX_BUFFER_VIEW FormattedBuffer::IBView() const
 	D3D12_INDEX_BUFFER_VIEW ibView = {};
 	ibView.BufferLocation = internalBuffer.gpuAddress;
 	ibView.Format = format;
-	ibView.SizeInBytes = stride * numElements;
+	ibView.SizeInBytes = Stride * NumElements;
 	return ibView;
+}
+
+//
+// Raw Buffer
+//
+void RawBuffer::Initialize(const RawBufferInit& init)
+{
+	assert(init.numElements > 0);
+	NumElements = init.numElements;
+	// Stride is 4 byte
+	internalBuffer.Initialize(Stride * NumElements, Stride, init.cpuAccessible, init.allowUAV, init.initData, init.initState, init.name);
+
+	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
+	SRV = srvAlloc.descriptorIndex;
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};	
+	srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.Buffer.FirstElement = 0;
+	srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+	srvDesc.Buffer.NumElements = uint32_t(NumElements);
+	d3dDevice->CreateShaderResourceView(internalBuffer.resource.Get(), &srvDesc, srvAlloc.cpuHandle);
+
+	if (init.allowUAV)
+	{
+		DescriptorAlloc uavAlloc = srvDescriptorHeap.Allocate();
+		UAV = uavAlloc.cpuHandle;
+
+		D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+		uavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+		uavDesc.Buffer.CounterOffsetInBytes = 0;
+		uavDesc.Buffer.FirstElement = 0;
+		uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+		uavDesc.Buffer.NumElements = uint32_t(NumElements);
+		d3dDevice->CreateUnorderedAccessView(internalBuffer.resource.Get(), nullptr, &uavDesc, UAV);
+	}
+}
+
+void RawBuffer::Shutdown()
+{
+	srvDescriptorHeap.Free(SRV);
+	srvDescriptorHeap.Free(UAV);
+	internalBuffer.Shutdown();
 }
 
 //
@@ -452,10 +531,23 @@ void DepthBuffer::Initialize(const DepthBufferInit& init)
 	dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
 
 	d3dDevice->CreateDepthStencilView(texture.resource.Get(), &dsvDesc, dsv);
+
+	// ShaderResource View
+	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
+	texture.SRV = srvAlloc.descriptorIndex;
+	srv = srvAlloc.gpuHandle;
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.Format = srvFormat;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MipLevels = 1;
+	d3dDevice->CreateShaderResourceView(texture.resource.Get(), &srvDesc, srvAlloc.cpuHandle);
 }
 
 void DepthBuffer::Shutdown()
 {
+	srvDescriptorHeap.Free(srv);
 	dsvDescriptorHeap.Free(dsv);
 	texture.Shutdown();
 }
@@ -471,6 +563,8 @@ void RenderTexture::Initialize(const RenderTextureInit& init)
 	textureDesc.Width = init.width;
 	textureDesc.Height = init.height;
 	textureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	if (init.allowUAV)
+		textureDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 	textureDesc.DepthOrArraySize = 1;
 	textureDesc.SampleDesc.Count = 1;
 	textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -482,12 +576,13 @@ void RenderTexture::Initialize(const RenderTextureInit& init)
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 		D3D12_HEAP_FLAG_NONE,
 		&textureDesc,
-		D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+		init.initState,
 		&clearValue,
 		IID_PPV_ARGS(&texture.resource)));
 
 	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
 	texture.SRV = srvAlloc.descriptorIndex;
+	srv = srvAlloc.gpuHandle;
 
 	d3dDevice->CreateShaderResourceView(texture.resource.Get(), nullptr, srvAlloc.cpuHandle);
 
@@ -495,10 +590,20 @@ void RenderTexture::Initialize(const RenderTextureInit& init)
 	rtv = rtvAlloc.cpuHandle;
 
 	d3dDevice->CreateRenderTargetView(texture.resource.Get(), nullptr, rtv);
+
+	if (init.allowUAV)
+	{
+		DescriptorAlloc uavAlloc = srvDescriptorHeap.Allocate();
+		uav = uavAlloc.cpuHandle;
+		uavGpuAddress = uavAlloc.gpuHandle;
+
+		d3dDevice->CreateUnorderedAccessView(texture.resource.Get(), nullptr, nullptr, uav);
+	}
 }
 
 void RenderTexture::Shutdown()
 {
+	srvDescriptorHeap.Free(uav);
 	rtvDescriptorHeap.Free(rtv);
 	texture.Shutdown();
 }

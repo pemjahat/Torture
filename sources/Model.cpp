@@ -26,11 +26,13 @@ void Model::Initialize()
 
 void Model::Shutdown()
 {
-    m_depthPipelineState = nullptr;
-    alphaTestPipelineState = nullptr;
+    depthPSO = nullptr;
+    depthAlphaPSO = nullptr;
+    gbufferPSO = nullptr;
+    gbufferAlphaPSO = nullptr;
 
     m_rootSignature = nullptr;
-    m_depthRootSignature = nullptr;
+    mainRootSignature = nullptr;
 
     meshResource.vertexBuffer.Shutdown();
     meshResource.indexBuffer.Shutdown();
@@ -153,7 +155,9 @@ void ProcessNode(const tinygltf::Model& model, int nodeIndex, const XMMATRIX& pa
     {
         NodeData nodeData;
         nodeData.meshIndex = node.mesh;
-        XMStoreFloat4x4(&nodeData.transform, nodeTransform);
+        nodeData.transform = nodeTransform;
+
+        modelData.numInstances += model.meshes[node.mesh].primitives.size();
         modelData.nodes.push_back(std::move(nodeData));
     }
 
@@ -304,6 +308,7 @@ void ProcessMesh(const tinygltf::Model& model, ModelData& modelData)
             }
 
             // Get material index
+            modelData.numPrimitives += 1;
             primitiveData.materialIndex = primitive.material;
             meshData.primitives.push_back(std::move(primitiveData));
         }
@@ -351,9 +356,9 @@ void ProcessMaterial(const tinygltf::Model& model, ModelData& modelData)
         }
         material.metallicFactor = static_cast<float>(pbr.metallicFactor);
         material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
-        material.alphaCutoff = mat.alphaMode.empty() ? 1.f : mat.alphaCutoff;
+        material.alphaCutoff = (mat.alphaMode.compare("OPAQUE") == 0) ? 1.f : mat.alphaCutoff;
         material.albedoTextureIndex = pbr.baseColorTexture.index;
-        material.metallicRoughnessTextureIndex = pbr.metallicRoughnessTexture.index;
+        material.metallicTextureIndex = pbr.metallicRoughnessTexture.index;
         material.normalTextureIndex = mat.normalTexture.index;
 
         modelData.materials.push_back(std::move(material));
@@ -373,6 +378,8 @@ HRESULT Model::LoadFromFile(const std::string& filePath)
     if (!ret) { return E_FAIL; }
 
     // Clear data
+    m_model.numPrimitives = 0;
+    m_model.numInstances = 0;
     m_model.nodes.clear();
     m_model.meshes.clear();
     //m_model.textures.clear();
@@ -398,20 +405,28 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
     std::filesystem::path depthShader = shaderPath / "basic.hlsl";
     std::filesystem::path gbufferShader = shaderPath / "gbuffer.hlsl";
 
-    CompileShaderFromFile(
+    /*CompileShaderFromFile(
         std::filesystem::absolute(mainShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
         L"VSMain",
         m_vertexShader,
-        ShaderType::Vertex);
+        ShaderType::Vertex);*/
 
+    // Depth prepass
     CompileShaderFromFile(
         std::filesystem::absolute(depthShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
         L"VSMain",
-        m_depthVertexShader,
+        depthVS,
         ShaderType::Vertex);
+    CompileShaderFromFile(
+        std::filesystem::absolute(depthShader).wstring(),
+        std::filesystem::absolute(shaderPath).wstring(),
+        L"PSMain",
+        depthAlphaPS,
+        ShaderType::Pixel);
 
+    // GBuffer
     CompileShaderFromFile(
         std::filesystem::absolute(gbufferShader).wstring(),
         std::filesystem::absolute(shaderPath).wstring(),
@@ -489,93 +504,45 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         rootSignatureDesc.pStaticSamplers = staticSampler;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-        CreateRootSignature(m_rootSignature, rootSignatureDesc);
+        //CreateRootSignature(m_rootSignature, rootSignatureDesc);
     }
  
-    // Root Signature (depth pre-pass)
+    // Root Signature (depth pre-pass + gbuffer)
     {
-        D3D12_ROOT_PARAMETER1 rootParameters[3] = {};
+        D3D12_ROOT_PARAMETER1 rootParameters[5] = {};
 
-        // Scene Constant Buffer
-        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-        rootParameters[0].Descriptor.RegisterSpace = 0;
-        rootParameters[0].Descriptor.ShaderRegister = 0;
-        rootParameters[0].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
-
-        // Model Constant
-        rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        rootParameters[1].Constants.Num32BitValues = 2;
-        rootParameters[1].Constants.RegisterSpace = 0;
-        rootParameters[1].Constants.ShaderRegister = 2;
-
-        // Structured buffer
-        D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange = {};
-
-        // Descriptor range
-        srvDescriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvDescriptorRange.NumDescriptors = 1;
-        srvDescriptorRange.BaseShaderRegister = 0;
-        srvDescriptorRange.RegisterSpace = 0;
-        srvDescriptorRange.OffsetInDescriptorsFromTableStart = 0;
-        srvDescriptorRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
-
-        rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        rootParameters[2].DescriptorTable.pDescriptorRanges = &srvDescriptorRange;
-        rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
-
-        // Root pipeline
-        D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
-        rootSignatureDesc.NumParameters = _countof(rootParameters);
-        rootSignatureDesc.pParameters = rootParameters;
-        rootSignatureDesc.NumStaticSamplers = 0;
-        rootSignatureDesc.pStaticSamplers = nullptr;
-        rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-
-        CreateRootSignature(m_depthRootSignature, rootSignatureDesc);
-    }
-
-    // GBuffer root signature
-    {
-        D3D12_ROOT_PARAMETER1 rootParameters[4] = {};
-
-        // Global srv used to bind bindless texture
+        // Bindless texture
         rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         rootParameters[0].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
         rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
 
-        // Scene Constant
+        // Scene Constant Buffer
         rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         rootParameters[1].Descriptor.RegisterSpace = 0;
         rootParameters[1].Descriptor.ShaderRegister = 0;
         rootParameters[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
-        
+
         // Model Constant
         rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         rootParameters[2].Constants.Num32BitValues = 2;
         rootParameters[2].Constants.RegisterSpace = 0;
-        rootParameters[2].Constants.ShaderRegister = 1;
+        rootParameters[2].Constants.ShaderRegister = 2;
 
-        // Structured buffer
-        D3D12_DESCRIPTOR_RANGE1 srvDescriptorRange[1] = {};
-
-        // Descriptor range
-        srvDescriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvDescriptorRange[0].NumDescriptors = 2;
-        srvDescriptorRange[0].BaseShaderRegister = 0;
-        srvDescriptorRange[0].RegisterSpace = 0;
-        srvDescriptorRange[0].OffsetInDescriptorsFromTableStart = 0;
-        srvDescriptorRange[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
-
-        rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        // Mesh + Material structured buffer
+        rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
         rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        rootParameters[3].DescriptorTable.pDescriptorRanges = srvDescriptorRange;
-        rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
+        rootParameters[3].Descriptor.RegisterSpace = 0;
+        rootParameters[3].Descriptor.ShaderRegister = 0;
+        rootParameters[3].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+        rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[4].Descriptor.RegisterSpace = 0;
+        rootParameters[4].Descriptor.ShaderRegister = 1;
+        rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
 
         // Static sampler
         D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
@@ -589,23 +556,23 @@ void Model::LoadShader(const std::filesystem::path& shaderPath )
         rootSignatureDesc.pStaticSamplers = staticSampler;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-        CreateRootSignature(gbufferRootSignature, rootSignatureDesc);
+        CreateRootSignature(mainRootSignature, rootSignatureDesc);
     }
 }
 
 void Model::CreatePSO()
 {
+    D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+    {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+    };
+
     // Main pass PSO
     {
-        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
-        {
-            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
-        };
-
         /*D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature = m_rootSignature.Get();
         psoDesc.VS = { m_vertexShader->GetBufferPointer(), m_vertexShader->GetBufferSize() };
@@ -625,14 +592,14 @@ void Model::CreatePSO()
 
     // Depth only PSO
     {
-        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
+        /*D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
         {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        };
+        };*/
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = m_depthRootSignature.Get();
-        psoDesc.VS = { m_depthVertexShader->GetBufferPointer(), m_depthVertexShader->GetBufferSize() };
+        psoDesc.pRootSignature = mainRootSignature.Get();
+        psoDesc.VS = { depthVS->GetBufferPointer(), depthVS->GetBufferSize() };
         psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
         psoDesc.BlendState = CD3DX12_BLEND_DESC{ D3D12_DEFAULT };
         psoDesc.DepthStencilState = GetDepthStencilState(DepthStencilState::WriteEnabled);
@@ -642,22 +609,16 @@ void Model::CreatePSO()
         psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc.Count = 1;
         psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
-        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_depthPipelineState)));
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&depthPSO)));
+
+        psoDesc.PS = { depthAlphaPS->GetBufferPointer(), depthAlphaPS->GetBufferSize() };
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&depthAlphaPSO)));
     }
 
     // GBuffer pso
     {
-        D3D12_INPUT_ELEMENT_DESC inputElementDesc[] =
-        {
-            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
-        };
-
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = gbufferRootSignature.Get();
+        psoDesc.pRootSignature = mainRootSignature.Get();
         psoDesc.VS = { gbufferVS->GetBufferPointer(), gbufferVS->GetBufferSize() };
         psoDesc.PS = { gbufferPS->GetBufferPointer(), gbufferPS->GetBufferSize() };
         psoDesc.RasterizerState = GetRasterizerState(RasterizerState::BackfaceCull);
@@ -672,10 +633,10 @@ void Model::CreatePSO()
         psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc.Count = 1;
         psoDesc.InputLayout = { inputElementDesc, _countof(inputElementDesc) };
-        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferPipelineState)));
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferPSO)));
 
         psoDesc.PS = { alphaTestPS->GetBufferPointer(), alphaTestPS->GetBufferSize() };
-        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&alphaTestPipelineState)));
+        CheckHRESULT(d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&gbufferAlphaPSO)));
     }
 }
 
@@ -709,7 +670,7 @@ HRESULT Model::UploadGpuResources()
         for (auto& primitive : mesh.primitives)
         {
             // Copy vertex data (byte offset)
-            memcpy(meshResource.vertices.data() + vtxOffset, primitive.vertices.data(), primitive.vertices.size() * sizeof(VertexData));
+            memcpy(meshResource.vertices.data() + vtxOffset, primitive.vertices.data(), primitive.vertices.size() * sizeof(MeshVertex));
 
             // Copy index data (byte offset)
             memcpy(meshResource.indices.data() + idxOffset, primitive.indices.data(), primitive.indices.size() * sizeof(uint32_t));
@@ -725,10 +686,9 @@ HRESULT Model::UploadGpuResources()
     }
 
     StructuredBufferInit sbi;
-    sbi.stride = sizeof(VertexData);
+    sbi.stride = sizeof(MeshVertex);
     sbi.numElements = numVertices;
     sbi.initData = meshResource.vertices.data();
-    sbi.initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
     sbi.name = L"ModelVertexBuffer";
     meshResource.vertexBuffer.Initialize(sbi);
 
@@ -737,7 +697,6 @@ HRESULT Model::UploadGpuResources()
     fbi.bitSize = 32;
     fbi.numElements = numIndices;
     fbi.initData = meshResource.indices.data();
-    fbi.initState = D3D12_RESOURCE_STATE_INDEX_BUFFER;
     fbi.name = L"ModelIndexBuffer";
     meshResource.indexBuffer.Initialize(fbi);
 
@@ -768,25 +727,19 @@ HRESULT Model::UploadGpuResources()
     {
         for (const NodeData& node : m_model.nodes)
         {
-            XMMATRIX world = XMLoadFloat4x4(&node.transform);
-
             const MeshData& mesh = m_model.meshes[node.meshIndex];
             for (const PrimitiveData& primitive : mesh.primitives)
             {
                 MeshStructuredBuffer meshSB;
                 DirectX::BoundingBox boundingBox;
 
-                // Transpose is for purpose row major(gltf) - column major(directX)
-                XMStoreFloat4x4(&meshSB.meshTransform, XMMatrixTranspose(world));
-
                 // Transform bounding box to world space
                 BoundingBox worldBox;
-                primitive.boundingBox.Transform(worldBox, world);
+                primitive.boundingBox.Transform(worldBox, node.transform);
 
+                meshSB.meshTransform = node.transform;
                 meshSB.centerBound = worldBox.Center;
                 meshSB.extentsBound = worldBox.Extents;
-                meshSB.vertexOffset = primitive.vertexOffset;
-                meshSB.indexOffset = primitive.indexOffset;
                 meshSB.useVertexColor = primitive.hasVertexColor ? 1 : 0;
                 meshSB.useTangent = primitive.hasTangent ? 1 : 0;
                 meshes.push_back(std::move(meshSB));
@@ -797,40 +750,28 @@ HRESULT Model::UploadGpuResources()
         sbi.stride = sizeof(MeshStructuredBuffer);
         sbi.numElements = meshes.size();
         sbi.initData = meshes.data();
-        sbi.initState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         sbi.name = L"MeshStructuredBuffer";
 
-        m_meshSB.Initialize(sbi);
+        meshSB.Initialize(sbi);
     }
 
     // Create material structured buffer
-    std::vector<MaterialStructuredBuffer> materials;
     {
-        for (const MaterialData& material : m_model.materials)
+        // Repeated information on material
+        for (MaterialData& mat : m_model.materials)
         {
-            MaterialStructuredBuffer matSB;
-
-            matSB.metallicFactor = material.metallicFactor;
-            matSB.roughnessFactor = material.roughnessFactor;
-
-            matSB.albedoTextureIndex = (material.albedoTextureIndex >= 0) ? m_model.textures[material.albedoTextureIndex].viewIndex : -1;
-            matSB.metallicTextureIndex = (material.metallicRoughnessTextureIndex >= 0) ? m_model.textures[material.metallicRoughnessTextureIndex].viewIndex : -1;
-            matSB.normalTextureIndex = (material.normalTextureIndex >= 0) ? m_model.textures[material.normalTextureIndex].viewIndex : -1;
-            matSB.alphaCutoff = material.alphaCutoff;
-
-            matSB.baseColorFactor = material.baseColorFactor;
-
-            materials.push_back(std::move(matSB));
+            mat.albedoViewTextureIndex = (mat.albedoTextureIndex >= 0) ? m_model.textures[mat.albedoTextureIndex].viewIndex : -1;
+            mat.metallicViewTextureIndex = (mat.metallicTextureIndex >= 0) ? m_model.textures[mat.metallicTextureIndex].viewIndex : -1;
+            mat.normalViewTextureIndex = (mat.normalTextureIndex >= 0) ? m_model.textures[mat.normalTextureIndex].viewIndex : -1;            
         }
 
         StructuredBufferInit sbi;
-        sbi.stride = sizeof(MaterialStructuredBuffer);
-        sbi.numElements = materials.size();
-        sbi.initData = materials.data();
-        sbi.initState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        sbi.stride = sizeof(MaterialData);
+        sbi.numElements = m_model.materials.size();
+        sbi.initData = m_model.materials.data();
         sbi.name = L"MaterialStructuredBuffer";
 
-        m_materialSB.Initialize(sbi);
+        materialSB.Initialize(sbi);
     }
 
     // Create sampler (create dummy if it's empty)
@@ -862,38 +803,219 @@ HRESULT Model::UploadGpuResources()
     return S_OK;
 }
 
-HRESULT Model::RenderDepthOnly(
-    const ConstantBuffer* sceneCB,
-    const BoundingFrustum& frustum)
+void Model::BuildAccelerationStructure()
 {
-    if (m_model.nodes.empty())
+    // Blas generate from Primitives
+    // Tlas generate from Instances
+    uint32_t numPrimitives = m_model.numPrimitives;
+    uint32_t numInstances = m_model.numInstances;
+    uint64_t ResultDataMaxSizeInBytes = 0;
+
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS buildFlags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+
+    std::vector<D3D12_RAYTRACING_GEOMETRY_DESC> geometryDescs(numPrimitives);
+    uint32_t primitiveIdx = 0;
+    for (const MeshData& mesh : m_model.meshes)
     {
-        return E_FAIL;
+        for (const PrimitiveData& primitive : mesh.primitives)
+        {
+            const MaterialData& material = m_model.materials[primitive.materialIndex];
+            const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
+
+            D3D12_RAYTRACING_GEOMETRY_DESC& geomDesc = geometryDescs[primitiveIdx];
+            geomDesc = {};
+            geomDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+            geomDesc.Triangles.IndexBuffer = meshResource.indexBuffer.internalBuffer.gpuAddress + primitive.indexOffset * meshResource.indexBuffer.Stride;
+            geomDesc.Triangles.IndexCount = primitive.indices.size();
+            geomDesc.Triangles.IndexFormat = meshResource.indexBuffer.format;
+            geomDesc.Triangles.Transform3x4 = 0;
+            geomDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+            geomDesc.Triangles.VertexCount = primitive.vertices.size();
+            geomDesc.Triangles.VertexBuffer.StartAddress = meshResource.vertexBuffer.internalBuffer.gpuAddress + primitive.vertexOffset * meshResource.vertexBuffer.Stride;
+            geomDesc.Triangles.VertexBuffer.StrideInBytes = meshResource.vertexBuffer.Stride;
+            geomDesc.Flags = nonOpaque ? D3D12_RAYTRACING_GEOMETRY_FLAG_NONE : D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+            
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS input = {};
+            input.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+            input.Flags = buildFlags;
+            input.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+            input.pGeometryDescs = &geomDesc;
+            input.NumDescs = 1;
+
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo = {};
+            d3dDevice->GetRaytracingAccelerationStructurePrebuildInfo(&input, &prebuildInfo);
+            assert(prebuildInfo.ResultDataMaxSizeInBytes > 0);
+            ResultDataMaxSizeInBytes = std::max(ResultDataMaxSizeInBytes, prebuildInfo.ResultDataMaxSizeInBytes);
+            primitiveIdx++;
+        }
     }
 
-    commandList->SetPipelineState(m_depthPipelineState.Get());
-    commandList->SetGraphicsRootSignature(m_depthRootSignature.Get());
-
-    // Bind srv descriptor heaps contain sb/srv
-    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
-    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
-    sceneCB->SetAsGfxRootParameter(commandList.Get(), 0);
-    m_meshSB.SetAsGfxRootParameter(commandList.Get(), 2);
-
-    commandList->IASetVertexBuffers(0, 1, &meshResource.vertexBuffer.VBView());
-    commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());
-    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-    UINT constantIndex = 0;
-    for (const auto& node : m_model.nodes)
+    // Blas scratch buffer
     {
-        XMMATRIX world = XMLoadFloat4x4(&node.transform);
-        const MeshData& mesh = m_model.meshes[node.meshIndex];
-        for (const auto& primitive : mesh.primitives)
+        RawBufferInit rbi;
+        rbi.numElements = ResultDataMaxSizeInBytes / RawBuffer::Stride;
+        rbi.allowUAV = true;
+        rbi.initState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        rbi.name = L"RT Blas ScratchBuffer";
+        meshResource.blasScratchBuffer.Initialize(rbi);
+    }
+
+    // Build blas
+    primitiveIdx = 0;
+    for (MeshData& mesh : m_model.meshes)
+    {
+        for (PrimitiveData& primitive : mesh.primitives)
         {
+            D3D12_RAYTRACING_GEOMETRY_DESC& geomDesc = geometryDescs[primitiveIdx];
+
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS input = {};
+            input.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+            input.Flags = buildFlags;
+            input.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+            input.pGeometryDescs = &geomDesc;
+            input.NumDescs = 1;
+
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo = {};
+            d3dDevice->GetRaytracingAccelerationStructurePrebuildInfo(&input, &prebuildInfo);
+            assert(prebuildInfo.ResultDataMaxSizeInBytes > 0);
+
+            RawBufferInit rbi;
+            rbi.numElements = prebuildInfo.ResultDataMaxSizeInBytes / RawBuffer::Stride;
+            rbi.allowUAV = true;
+            rbi.initState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+            rbi.name = L"RT Bot Level Acceleration Structure";
+            primitive.blasBuffer.Initialize(rbi);
+
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC blasDesc = {};
+            blasDesc.Inputs = input;
+            blasDesc.ScratchAccelerationStructureData = meshResource.blasScratchBuffer.internalBuffer.gpuAddress;
+            blasDesc.DestAccelerationStructureData = primitive.blasBuffer.internalBuffer.gpuAddress;
+
+            commandList->BuildRaytracingAccelerationStructure(&blasDesc, 0, nullptr);
+            primitive.blasBuffer.internalBuffer.UAVBarrier(commandList.Get());
+            primitiveIdx++;
+        }
+    }
+
+    // Build tlas instancing
+    std::vector<D3D12_RAYTRACING_INSTANCE_DESC> instanceDescs(numInstances);
+    uint32_t instanceIndex = 0;
+    for (const NodeData& node : m_model.nodes)
+    {
+        const MeshData& mesh = m_model.meshes[node.meshIndex];
+        for (const PrimitiveData& primitive : mesh.primitives)
+        {
+            D3D12_RAYTRACING_INSTANCE_DESC& instanceDesc = instanceDescs[instanceIndex];
+            instanceDesc = {};
+            instanceDesc.InstanceID = instanceIndex;
+            instanceDesc.InstanceMask = 0xFF;
+            instanceDesc.AccelerationStructure = primitive.blasBuffer.internalBuffer.gpuAddress;
+            XMStoreFloat3x4(reinterpret_cast<XMFLOAT3X4*>(instanceDesc.Transform), node.transform);
+            instanceIndex++;
+        }
+    }
+
+    RawBufferInit rbi;
+    rbi.numElements = (instanceDescs.size() * sizeof(D3D12_RAYTRACING_INSTANCE_DESC)) / RawBuffer::Stride;
+    rbi.cpuAccessible = true;
+    rbi.initData = instanceDescs.data();
+    rbi.name = L"RT InstanceDesc";
+    meshResource.instanceBuffer.Initialize(rbi);
+
+    // Build tlas scratch buffer
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo = {};
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS input = {};
+    input.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+    input.Flags = buildFlags;
+    input.NumDescs = instanceDescs.size();
+    //input.InstanceDescs = meshResource.instanceBuffer->GetGPUVirtualAddress();
+    input.InstanceDescs = meshResource.instanceBuffer.internalBuffer.gpuAddress;
+    d3dDevice->GetRaytracingAccelerationStructurePrebuildInfo(&input, &prebuildInfo);
+    assert(prebuildInfo.ResultDataMaxSizeInBytes > 0);
+    {
+        RawBufferInit rbi;
+        rbi.numElements = prebuildInfo.ResultDataMaxSizeInBytes / RawBuffer::Stride;
+        rbi.allowUAV = true;
+        rbi.initState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        rbi.name = L"RT Tlas ScratchBuffer";
+        meshResource.tlasScratchBuffer.Initialize(rbi);
+    }
+
+    // Build tlas buffer
+    {
+        RawBufferInit rbi;
+        rbi.numElements = prebuildInfo.ResultDataMaxSizeInBytes / RawBuffer::Stride;
+        rbi.allowUAV = true;
+        rbi.initState = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE;
+        rbi.name = L"RT Top Level Acceleration Structure";
+        meshResource.tlasBuffer.Initialize(rbi);
+    }
+    
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC buildDesc = {};
+    buildDesc.Inputs = input;
+    buildDesc.ScratchAccelerationStructureData = meshResource.tlasScratchBuffer.internalBuffer.gpuAddress;
+    buildDesc.DestAccelerationStructureData = meshResource.tlasBuffer.internalBuffer.gpuAddress;
+    commandList->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
+    meshResource.tlasBuffer.internalBuffer.UAVBarrier(commandList.Get());
+
+    // Build instance info buffer
+    std::vector<InstanceInfo> instanceInfo(numInstances);
+    instanceIndex = 0;
+    for (const NodeData& node : m_model.nodes)
+    {
+        const MeshData& mesh = m_model.meshes[node.meshIndex];
+        for (const PrimitiveData& primitive : mesh.primitives)
+        {
+            InstanceInfo& instInfo = instanceInfo[instanceIndex];
+            instInfo = {};
+            instInfo.VtxOffset = primitive.vertexOffset;
+            instInfo.IdxOffsetByBytes = primitive.indexOffset * sizeof(uint32_t);
+            instInfo.MaterialIdx = primitive.materialIndex;
+            instInfo.UseTangent = primitive.hasTangent ? 1 : 0;
+            instInfo.UseVertexColor = primitive.hasVertexColor ? 1 : 0;
+            instanceIndex++;
+        }
+    }
+
+    StructuredBufferInit sbi;
+    sbi.stride = sizeof(InstanceInfo);
+    sbi.numElements = instanceInfo.size();
+    sbi.initData = instanceInfo.data();
+    sbi.name = L"Instance info buffer";
+    meshResource.instanceInfoBuffer.Initialize(sbi);
+}
+
+void Model::RenderModel(const BoundingFrustum& frustum, bool AlphaFilter)
+{
+    UINT constantIndex = 0;
+    for (const NodeData& node : m_model.nodes)
+    {
+        const MeshData& mesh = m_model.meshes[node.meshIndex];
+        for (const PrimitiveData& primitive : mesh.primitives)
+        {
+            const MaterialData& material = m_model.materials[primitive.materialIndex];
+            const bool nonOpaque = (material.alphaCutoff < 1.f) ? true : false;
+
+            if (AlphaFilter)
+            {
+                if (!nonOpaque)
+                {
+                    constantIndex++;
+                    continue;
+                }
+            }
+            else
+            {
+                if (nonOpaque)
+                {
+                    constantIndex++;
+                    continue;
+                }
+            }
+
             // transform bounding box to world space
             BoundingBox worldBox;
-            primitive.boundingBox.Transform(worldBox, world);
+            primitive.boundingBox.Transform(worldBox, node.transform);
             if (frustum.Contains(worldBox) == DISJOINT)
             {
                 constantIndex++;
@@ -902,13 +1024,43 @@ HRESULT Model::RenderDepthOnly(
 
             // constant
             ModelConstants constant = { static_cast<UINT>(constantIndex), static_cast<UINT>(primitive.materialIndex) };
-            commandList->SetGraphicsRoot32BitConstants(1, 2, &constant, 0);
+            commandList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
 
             // Set vertex and index buffers
             commandList->DrawIndexedInstanced(primitive.indices.size(), 1, primitive.indexOffset, primitive.vertexOffset, 0);
             constantIndex++;
         }
     }
+}
+HRESULT Model::RenderDepthOnly(
+    const ConstantBuffer* sceneCB,
+    const BoundingFrustum& frustum)
+{
+    if (m_model.nodes.empty())
+    {
+        return E_FAIL;
+    }
+    commandList->SetGraphicsRootSignature(mainRootSignature.Get());
+
+    // Bind srv descriptor heaps contain sb/srv
+    ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
+    commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
+    SrvSetAsGfxRootParameter(commandList.Get(), 0); // bindless
+    sceneCB->SetAsGfxRootParameter(commandList.Get(), 1);
+    commandList->SetGraphicsRootShaderResourceView(3, meshSB.internalBuffer.gpuAddress);
+    commandList->SetGraphicsRootShaderResourceView(4, materialSB.internalBuffer.gpuAddress);
+
+    commandList->IASetVertexBuffers(0, 1, &meshResource.vertexBuffer.VBView());
+    commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // Render opaque first
+    commandList->SetPipelineState(depthPSO.Get());
+    RenderModel(frustum, false);
+
+    // Render alpha test
+    commandList->SetPipelineState(depthAlphaPSO.Get());
+    RenderModel(frustum, true);
     return S_OK;
 }
 
@@ -969,68 +1121,32 @@ HRESULT Model::RenderBasePass(
     return S_OK;
 }
 
-void Model::RenderDepthPrepass()
-{
-
-}
-
 void Model::RenderGBuffer(const ConstantBuffer* sceneCB, const DirectX::BoundingFrustum& frustum)
 {
     if (m_model.nodes.empty())
     {
         return;
     }
-
-    commandList->SetPipelineState(gbufferPipelineState.Get());
-    commandList->SetGraphicsRootSignature(gbufferRootSignature.Get());
+    
+    commandList->SetGraphicsRootSignature(mainRootSignature.Get());
 
     // Bind srv descriptor heaps contain texture srv
     ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
     commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
-    SrvSetAsGfxRootParameter(commandList.Get(), 0);
+    SrvSetAsGfxRootParameter(commandList.Get(), 0); // bindless
     sceneCB->SetAsGfxRootParameter(commandList.Get(), 1);
-    m_meshSB.SetAsGfxRootParameter(commandList.Get(), 3);
+    commandList->SetGraphicsRootShaderResourceView(3, meshSB.internalBuffer.gpuAddress);
+    commandList->SetGraphicsRootShaderResourceView(4, materialSB.internalBuffer.gpuAddress);
 
     commandList->IASetVertexBuffers(0, 1, &meshResource.vertexBuffer.VBView());
     commandList->IASetIndexBuffer(&meshResource.indexBuffer.IBView());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    ComPtr<ID3D12PipelineState> currPSO = gbufferPipelineState;
+    // Render opaque first
+    commandList->SetPipelineState(gbufferPSO.Get());
+    RenderModel(frustum, false);
 
-    UINT constantIndex = 0;
-    for (const auto& node : m_model.nodes)
-    {
-        XMMATRIX world = XMLoadFloat4x4(&node.transform);
-        const MeshData& mesh = m_model.meshes[node.meshIndex];
-        for (const auto& primitive : mesh.primitives)
-        {
-            // transform bounding box to world space
-            BoundingBox worldBox;
-            primitive.boundingBox.Transform(worldBox, world);
-
-            if (frustum.Contains(worldBox) == DISJOINT)
-            {
-                constantIndex++;
-                continue;
-            }
-
-            // Constant
-            ModelConstants constant = { static_cast<UINT>(constantIndex), static_cast<UINT>(primitive.materialIndex) };
-            commandList->SetGraphicsRoot32BitConstants(2, 2, &constant, 0);
-
-            ComPtr<ID3D12PipelineState> newPSO = gbufferPipelineState;
-            const MaterialData& material = m_model.materials[primitive.materialIndex];
-            if (material.alphaCutoff < 1.f)
-                newPSO = alphaTestPipelineState;
-
-            if (currPSO != newPSO)
-            {
-                commandList->SetPipelineState(newPSO.Get());
-                currPSO = newPSO;
-            }
-            // Set vertex and index buffers
-            commandList->DrawIndexedInstanced(primitive.indices.size(), 1, primitive.indexOffset, primitive.vertexOffset, 0);
-            constantIndex++;
-        }
-    }
+    // Render alpha test
+    commandList->SetPipelineState(gbufferAlphaPSO.Get());
+    RenderModel(frustum, true);
 }

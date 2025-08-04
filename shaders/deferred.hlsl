@@ -1,5 +1,7 @@
 // basic.hlsl (depth only)
 #include "common.hlsl"
+#define HLSL
+#include "HLSLCompatible.h"
 
 struct DeferredConstant
 {
@@ -12,6 +14,7 @@ ConstantBuffer<LightData> lightCB : register(b0);
 ConstantBuffer<DeferredConstant> deferredCB : register(b1);
 
 Texture2D materialTex[] : register(t0, space1); // bindless for material (share desc heap)
+Texture2D<float4> rtBuffer : register(t0);
 
 SamplerState g_sampler : register(s0);
 
@@ -28,8 +31,10 @@ float4 PSMain(float4 position : SV_Position, float2 texCoord : TEXCOORD) : SV_Ta
     // Lighting calculation
     float3 lightDir = normalize(-lightCB.direction);
     float NdotL = max(dot(normalMap, lightDir), 0.0);
-    
-    float3 ambientHack = lightCB.color * 0.1f;
-    float3 lighting =  ambientHack + albedo * lightCB.color * lightCB.intensity * NdotL;
-    return float4(lighting, 1.f);
+ 
+    float shadow = rtBuffer.Sample(g_sampler, texCoord).r;
+    float3 outColor = lightCB.ambient.rgb + albedo;
+    outColor += shadow * (albedo * lightCB.color.rgb * lightCB.intensity * NdotL);
+ 
+    return float4(outColor, 1.f);
 }

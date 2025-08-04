@@ -53,13 +53,15 @@ struct Buffer
 	void Initialize(
 		uint64_t size, 
 		uint64_t alignment, 
-		bool cpuAccessible, 
+		bool cpuAccessible,
+		bool allowUAV,
 		const void* initData, 
 		D3D12_RESOURCE_STATES initialState, 
 		const wchar_t* name);
 	void Shutdown();
 
 	MapResult Map();
+	void UAVBarrier(ID3D12GraphicsCommandList* cmdList) const;
 };
 
 struct ConstantBufferInit
@@ -85,17 +87,18 @@ struct ConstantBuffer
 
 struct StructuredBufferInit
 {
+	bool cpuAccessible = false;
 	uint64_t stride = 0;
 	uint64_t numElements = 0;
 	const void* initData = nullptr;
-	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_GENERIC_READ;
 	const wchar_t* name = nullptr;
 };
 struct StructuredBuffer
 {
 	Buffer internalBuffer;
-	uint64_t stride = 0;
-	uint64_t numElements = 0;
+	uint64_t Stride = 0;
+	uint64_t NumElements = 0;
 	uint32_t SRV = uint32_t(-1);
 
 	void Initialize(const StructuredBufferInit& init);
@@ -104,13 +107,17 @@ struct StructuredBuffer
 	void SetAsGfxRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
 	void SetAsComputeRootParameter(ID3D12GraphicsCommandList* cmdList, uint32_t rootParameter) const;
 
-	D3D12_VERTEX_BUFFER_VIEW VBView() const;	
+	D3D12_VERTEX_BUFFER_VIEW VBView() const;
+
+	D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE ShaderTable(uint64_t startElement = 0, uint64_t numElements = uint64_t(-1)) const;
+	D3D12_GPU_VIRTUAL_ADDRESS_RANGE ShaderRecord(uint64_t element) const;
 };
 
 struct FormattedBufferInit
 {
 	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
 	uint32_t bitSize = 0;
+	bool cpuAccessible = true;
 	uint64_t numElements = 0;
 	const void* initData = nullptr;
 	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_GENERIC_READ;
@@ -119,14 +126,37 @@ struct FormattedBufferInit
 struct FormattedBuffer
 {
 	Buffer internalBuffer;
-	uint64_t stride = 0;
-	uint64_t numElements = 0;
+	uint64_t Stride = 0;
+	uint64_t NumElements = 0;
 	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
 
 	void Initialize(const FormattedBufferInit& init);
 	void Shutdown();
 
 	D3D12_INDEX_BUFFER_VIEW IBView() const;
+};
+
+struct RawBufferInit
+{
+	uint64_t numElements = 0;
+	bool cpuAccessible = false;
+	bool allowUAV = false;
+	const void* initData = nullptr;
+	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_GENERIC_READ;
+	const wchar_t* name = nullptr;
+};
+
+struct RawBuffer
+{
+	Buffer internalBuffer;
+	uint64_t NumElements = 0;
+	uint32_t SRV = uint32_t(-1);
+	D3D12_CPU_DESCRIPTOR_HANDLE UAV = {};
+
+	static const uint64_t Stride = 4;
+
+	void Initialize(const RawBufferInit& init);
+	void Shutdown();
 };
 
 struct TextureInit
@@ -163,6 +193,7 @@ struct DepthBuffer
 {
 	Texture texture;
 	D3D12_CPU_DESCRIPTOR_HANDLE dsv = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE srv = {};
 	DXGI_FORMAT depthFormat = DXGI_FORMAT_UNKNOWN;
 
 	void Initialize(const DepthBufferInit& init);
@@ -175,13 +206,18 @@ struct RenderTextureInit
 {
 	uint32_t width = 0;
 	uint32_t height = 0;
+	bool allowUAV = false;
 	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+	D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 };
 
 struct RenderTexture
 {
 	Texture texture;
 	D3D12_CPU_DESCRIPTOR_HANDLE rtv = {};
+	D3D12_CPU_DESCRIPTOR_HANDLE uav = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE srv = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE uavGpuAddress = {};
 
 	void Initialize(const RenderTextureInit& init);
 	void Shutdown();

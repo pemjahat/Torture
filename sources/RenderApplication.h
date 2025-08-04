@@ -7,6 +7,7 @@
 #include "SimpleCamera.h"
 #include "DX12.h"
 #include "GraphicsTypes.h"
+#include "../Shaders/HLSLCompatible.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -37,27 +38,12 @@ public:
     void CreateRenderTargets();
     void RenderGBuffer(const DirectX::BoundingFrustum& frustum);
     void RenderDeferred(const ConstantBuffer* lightCB);
+    void DispatchRaytracing();
+    void RenderRaytracing();
+    void CopyRaytracingToBackBuffer();
 private:
     static const UINT FrameCount = 2;
     
-    struct SceneConstantBuffer
-    {
-        XMFLOAT4X4 World;
-        XMFLOAT4X4 WorldView;
-        XMFLOAT4X4 WorldViewProj;
-        XMFLOAT2 InvTextureSize;
-        XMFLOAT2 HiZDimension;
-        //float padding[12];  // padd to 256byte aligned
-    };
-
-    struct LightData
-    {
-        XMFLOAT3 direction;
-        float intensity;
-        XMFLOAT3 color;
-        float padding;
-    };
-
     // Pipeline object
     D3D12_VIEWPORT m_viewport;
     D3D12_RECT m_scissorRect;
@@ -82,8 +68,11 @@ private:
     // Deferred resource
     ComPtr<IDxcBlob> fullscreenVS;
     ComPtr<IDxcBlob> deferredPS;
+    ComPtr<IDxcBlob> raytraceShadowCS;
     ComPtr<ID3D12RootSignature> deferredRootSignature;
     ComPtr<ID3D12PipelineState> deferredPSO;
+    ComPtr<ID3D12RootSignature> rtRootSignature;
+    ComPtr<ID3D12PipelineState> rtShadowPSO;
 
     // HiZ Passes resource
     ComPtr<ID3D12Resource> m_hiZBuffer;
@@ -94,6 +83,17 @@ private:
     D3D12_CPU_DESCRIPTOR_HANDLE m_hiZDepthSrvCpuHandle;
     D3D12_GPU_DESCRIPTOR_HANDLE m_hiZDepthSrvGpuHandle;
     UINT m_hiZDescriptorSize;
+
+    // Testing ray tracing
+    ComPtr<IDxcBlob> raytraceLib;
+    RenderTexture rtBuffer;
+    
+    ComPtr<ID3D12StateObject> rtPipelineState;
+    StructuredBuffer rtRayGenTable;
+    StructuredBuffer rtHitTable;
+    StructuredBuffer rtMissTable;
+
+    typedef UINT16 Index;
 
     // Synchronization
     UINT m_frameIndex;
@@ -125,6 +125,12 @@ private:
 
     std::wstring GetAssetFullPath(const std::string& relativePath);
 
+    // Raytrace
+    void CreateRT();
+    void CreateRTPipelineStateObject();
+    void CreateRTShadowPSO();
+    void CreateRTAccelerationStructure();
+    
     void LoadPipeline();
     void LoadAsset(SDL_Window* window);
     void PopulateCommandList();

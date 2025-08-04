@@ -1,24 +1,6 @@
 #include "common.hlsl"
-
-cbuffer SceneConstantBuffer : register(b0)
-{
-    float4x4 World;
-    float4x4 WorldView;
-    float4x4 WorldViewProj;
-    
-    float2 InvTextureSize;
-    float2 HiZDimension;
-
-    float4 padding[3];
-};
-
-cbuffer LightData : register(b1)
-{
-    float3 direction;
-    float intensity;
-    float3 color;
-    float padded;
-};
+#define HLSL
+#include "HLSLCompatible.h"
 
 struct VSInput
 {
@@ -44,7 +26,7 @@ ConstantBuffer<LightData> lightCB : register(b1);
 ConstantBuffer<ModelConstants> modelConstants : register(b2);
 
 Texture2D materialTex[] : register(t0, space1); // bindless for material (share desc heap)
-StructuredBuffer<MeshData> meshData : register(t0);
+StructuredBuffer<MeshStructuredBuffer> meshData : register(t0);
 StructuredBuffer<MaterialData> materialData : register(t1);
 
 SamplerState g_sampler : register(s0);
@@ -100,7 +82,7 @@ PSInput VSMain(VSInput input)
 {
     PSInput output;
     
-    MeshData mesh = meshData[modelConstants.meshIndex];
+    MeshStructuredBuffer mesh = meshData[modelConstants.meshIndex];
     
     // Apply mesh transform
     float4 pos = float4(input.position, 1.f);
@@ -134,7 +116,7 @@ PSInput VSMain(VSInput input)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    MeshData mesh = meshData[modelConstants.meshIndex];
+    MeshStructuredBuffer mesh = meshData[modelConstants.meshIndex];
     MaterialData material = materialData[modelConstants.materialIndex];
     
     //
