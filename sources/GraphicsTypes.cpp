@@ -582,6 +582,7 @@ void RenderTexture::Initialize(const RenderTextureInit& init)
 
 	DescriptorAlloc srvAlloc = srvDescriptorHeap.Allocate();
 	texture.SRV = srvAlloc.descriptorIndex;
+	srv = srvAlloc.gpuHandle;
 
 	d3dDevice->CreateShaderResourceView(texture.resource.Get(), nullptr, srvAlloc.cpuHandle);
 

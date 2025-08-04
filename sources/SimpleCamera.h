@@ -14,10 +14,10 @@ public:
 	void Update(float elapsedSecond);
 
 	//BoundingFrustum GetFrustum() const;
-	BoundingFrustum GetFrustum(float fov, float aspectRatio, float nearPlane=1.0, float farPlane=1000.f) const;
+	BoundingFrustum GetFrustum(float fov, float aspectRatio, float nearPlane=0.1, float farPlane=1000.f) const;
 	XMVECTOR GetPosition() const;
 	XMMATRIX GetViewMatrix() const;
-	XMMATRIX GetProjectionMatrix(float fov, float aspectRatio, float nearPlane=1.0, float farPlane=1000.f) const;
+	XMMATRIX GetProjectionMatrix(float fov, float aspectRatio, float nearPlane=0.1, float farPlane=1000.f) const;
 	void SetMoveSpeed(float unitPerSecond);
 	void SetTurnSpeed(float radiansPerSecond);
 

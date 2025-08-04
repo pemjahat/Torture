@@ -126,7 +126,7 @@ void RenderApplication::CreateRT()
         raytraceLib,
         ShaderType::Library);
 
-    D3D12_ROOT_PARAMETER1 rootParameters[9] = {};
+    D3D12_ROOT_PARAMETER1 rootParameters[10] = {};
     // Acceleration structure
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
@@ -159,11 +159,22 @@ void RenderApplication::CreateRT()
     rootParameters[4].Descriptor.ShaderRegister = 4;
     rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
 
-    // Bindless
+    D3D12_DESCRIPTOR_RANGE1 srvRanges[1] = {};
+    srvRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvRanges[0].NumDescriptors = 1;
+    srvRanges[0].BaseShaderRegister = 5;
+    srvRanges[0].RegisterSpace = 0;
+    srvRanges[0].OffsetInDescriptorsFromTableStart = 0;
     rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[5].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
-    rootParameters[5].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[5].DescriptorTable.pDescriptorRanges = srvRanges;
+    rootParameters[5].DescriptorTable.NumDescriptorRanges = _countof(srvRanges);
+
+    // Bindless
+    rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[6].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
+    rootParameters[6].DescriptorTable.NumDescriptorRanges = 1;
 
     // UAV
     D3D12_DESCRIPTOR_RANGE1 uavRanges[1] = {};
@@ -172,23 +183,23 @@ void RenderApplication::CreateRT()
     uavRanges[0].BaseShaderRegister = 0;
     uavRanges[0].RegisterSpace = 0;
     uavRanges[0].OffsetInDescriptorsFromTableStart = 0;
-    rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[6].DescriptorTable.pDescriptorRanges = uavRanges;
-    rootParameters[6].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
+    rootParameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[7].DescriptorTable.pDescriptorRanges = uavRanges;
+    rootParameters[7].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
 
     // Scene + Light 
-    rootParameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    rootParameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[7].Descriptor.RegisterSpace = 0;
-    rootParameters[7].Descriptor.ShaderRegister = 0;
-    rootParameters[7].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
-
     rootParameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[8].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     rootParameters[8].Descriptor.RegisterSpace = 0;
-    rootParameters[8].Descriptor.ShaderRegister = 1;
+    rootParameters[8].Descriptor.ShaderRegister = 0;
     rootParameters[8].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+
+    rootParameters[9].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[9].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[9].Descriptor.RegisterSpace = 0;
+    rootParameters[9].Descriptor.ShaderRegister = 1;
+    rootParameters[9].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
 
     // Static sampler
     D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
@@ -356,64 +367,65 @@ void RenderApplication::CreateRTShadowPSO()
         //ShaderType::Library);
         ShaderType::Compute);
 
-    D3D12_ROOT_PARAMETER1 rootParameters[5] = {};
+    //D3D12_ROOT_PARAMETER1 rootParameters[5] = {};
 
-    // Bindless
-    rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[0].Descriptor.RegisterSpace = 0;
-    rootParameters[0].Descriptor.ShaderRegister = 0;
-    rootParameters[0].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    //// Bindless
+    //rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    //rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    //rootParameters[0].Descriptor.RegisterSpace = 0;
+    //rootParameters[0].Descriptor.ShaderRegister = 0;
+    //rootParameters[0].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
 
-    // Depth texture
-    D3D12_DESCRIPTOR_RANGE1 srvRanges[1] = {};
-    srvRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    srvRanges[0].NumDescriptors = 1;
-    srvRanges[0].BaseShaderRegister = 1;
-    srvRanges[0].RegisterSpace = 0;
-    srvRanges[0].OffsetInDescriptorsFromTableStart = 0;
-    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[1].DescriptorTable.pDescriptorRanges = srvRanges;
-    rootParameters[1].DescriptorTable.NumDescriptorRanges = _countof(srvRanges);
+    //// Depth texture
+    //D3D12_DESCRIPTOR_RANGE1 srvRanges[1] = {};
+    //srvRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    //srvRanges[0].NumDescriptors = 1;
+    //srvRanges[0].BaseShaderRegister = 5;
+    //srvRanges[0].RegisterSpace = 0;
+    //srvRanges[0].OffsetInDescriptorsFromTableStart = 0;
+    //rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    //rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    //rootParameters[1].DescriptorTable.pDescriptorRanges = srvRanges;
+    //rootParameters[1].DescriptorTable.NumDescriptorRanges = _countof(srvRanges);
 
-    // Render target
-    D3D12_DESCRIPTOR_RANGE1 uavRanges[1] = {};
-    uavRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    uavRanges[0].NumDescriptors = 1;
-    uavRanges[0].BaseShaderRegister = 0;
-    uavRanges[0].RegisterSpace = 0;
-    uavRanges[0].OffsetInDescriptorsFromTableStart = 0;
-    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[2].DescriptorTable.pDescriptorRanges = uavRanges;
-    rootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
+    //// Render target
+    //D3D12_DESCRIPTOR_RANGE1 uavRanges[1] = {};
+    //uavRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    //uavRanges[0].NumDescriptors = 1;
+    //uavRanges[0].BaseShaderRegister = 0;
+    //uavRanges[0].RegisterSpace = 0;
+    //uavRanges[0].OffsetInDescriptorsFromTableStart = 0;
+    //rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    //rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    //rootParameters[2].DescriptorTable.pDescriptorRanges = uavRanges;
+    //rootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(uavRanges);
 
-    // Scene + Light CB
-    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[3].Descriptor.RegisterSpace = 0;
-    rootParameters[3].Descriptor.ShaderRegister = 0;
-    rootParameters[3].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    //// Scene + Light CB
+    //rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    //rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    //rootParameters[3].Descriptor.RegisterSpace = 0;
+    //rootParameters[3].Descriptor.ShaderRegister = 0;
+    //rootParameters[3].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
 
-    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    rootParameters[4].Descriptor.RegisterSpace = 0;
-    rootParameters[4].Descriptor.ShaderRegister = 1;
-    rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+    //rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    //rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    //rootParameters[4].Descriptor.RegisterSpace = 0;
+    //rootParameters[4].Descriptor.ShaderRegister = 1;
+    //rootParameters[4].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
 
-    // Root pipeline
-    D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
-    rootSignatureDesc.NumParameters = _countof(rootParameters);
-    rootSignatureDesc.pParameters = rootParameters;
-    rootSignatureDesc.NumStaticSamplers = 0;
-    rootSignatureDesc.pStaticSamplers = nullptr;
-    rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    //// Root pipeline
+    //D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc = {};
+    //rootSignatureDesc.NumParameters = _countof(rootParameters);
+    //rootSignatureDesc.pParameters = rootParameters;
+    //rootSignatureDesc.NumStaticSamplers = 0;
+    //rootSignatureDesc.pStaticSamplers = nullptr;
+    //rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
-    CreateRootSignature(raytraceRootSignature, rootSignatureDesc);
+    //CreateRootSignature(raytraceRootSignature, rootSignatureDesc);
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.pRootSignature = raytraceRootSignature.Get();
+    //psoDesc.pRootSignature = raytraceRootSignature.Get();
+    psoDesc.pRootSignature = rtRootSignature.Get();
     psoDesc.CS = { raytraceShadowCS->GetBufferPointer(), raytraceShadowCS->GetBufferSize() };
     CheckHRESULT(d3dDevice->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&raytraceShadowPSO)));
     
@@ -668,9 +680,9 @@ void RenderApplication::LoadAsset(SDL_Window* window)
 
         
 
-        D3D12_ROOT_PARAMETER1 rootParameters[3] = {};
+        D3D12_ROOT_PARAMETER1 rootParameters[4] = {};
 
-        // GBuffer RTarget
+        // Bindless
         rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
         rootParameters[0].DescriptorTable.pDescriptorRanges = SRVDescriptorRanges();
@@ -689,6 +701,17 @@ void RenderApplication::LoadAsset(SDL_Window* window)
         rootParameters[2].Constants.Num32BitValues = 3;
         rootParameters[2].Constants.RegisterSpace = 0;
         rootParameters[2].Constants.ShaderRegister = 1;
+
+        D3D12_DESCRIPTOR_RANGE1 srvRanges[1] = {};
+        srvRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srvRanges[0].NumDescriptors = 1;
+        srvRanges[0].BaseShaderRegister = 0;
+        srvRanges[0].RegisterSpace = 0;
+        srvRanges[0].OffsetInDescriptorsFromTableStart = 0;
+        rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParameters[3].DescriptorTable.pDescriptorRanges = srvRanges;
+        rootParameters[3].DescriptorTable.NumDescriptorRanges = _countof(srvRanges);
 
         // Static sampler
         D3D12_STATIC_SAMPLER_DESC staticSampler[1] = {};
@@ -1136,7 +1159,8 @@ void RenderApplication::CreateRenderTargets()
         rti.height = m_height;
         rti.format = DXGI_FORMAT_R8G8B8A8_UNORM;
         rti.allowUAV = true;
-        rti.initState = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        //rti.initState = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        rti.initState = D3D12_RESOURCE_STATE_GENERIC_READ;
         rtBuffer.Initialize(rti);
     }
 }
@@ -1217,6 +1241,7 @@ void RenderApplication::RenderDeferred(const ConstantBuffer* lightCB)
     commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
     SrvSetAsGfxRootParameter(commandList.Get(), 0);
     lightCB->SetAsGfxRootParameter(commandList.Get(), 1);
+    commandList->SetGraphicsRootDescriptorTable(3, rtBuffer.srv);
 
     // Constant
     uint32_t constant[3] = { albedoBuffer.texture.SRV, normalBuffer.texture.SRV, materialBuffer.texture.SRV };
@@ -1231,26 +1256,45 @@ void RenderApplication::RenderDeferred(const ConstantBuffer* lightCB)
 void RenderApplication::DispatchRaytracing()
 {
     {
-        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        D3D12_RESOURCE_BARRIER barriers[2] = {};
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
             depthBuffer.texture.resource.Get(),
             D3D12_RESOURCE_STATE_DEPTH_WRITE,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        commandList->ResourceBarrier(1, &barrier);
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+            rtBuffer.texture.resource.Get(),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        commandList->ResourceBarrier(_countof(barriers), barriers);
     }
 
-    commandList->SetComputeRootSignature(raytraceRootSignature.Get());
+    //commandList->SetComputeRootSignature(raytraceRootSignature.Get());
+    commandList->SetComputeRootSignature(rtRootSignature.Get());
     commandList->SetPipelineState(raytraceShadowPSO.Get());
     //commandList->SetPipelineState1(rtShadowPSO.Get());
 
+    const StructuredBuffer& materialBuffer = m_model.MaterialBuffer();
     const MeshResources& meshResource = m_model.MeshResource();
 
     ID3D12DescriptorHeap* ppDescHeaps[] = { srvDescriptorHeap.heap.Get() };
     commandList->SetDescriptorHeaps(_countof(ppDescHeaps), ppDescHeaps);
-    commandList->SetComputeRootShaderResourceView(0, meshResource.tlasBuffer.internalBuffer.gpuAddress);
+    /*commandList->SetComputeRootShaderResourceView(0, meshResource.tlasBuffer.internalBuffer.gpuAddress);
     commandList->SetComputeRootDescriptorTable(1, depthBuffer.srv);
     commandList->SetComputeRootDescriptorTable(2, rtBuffer.uavGpuAddress);
     m_sceneCB.SetAsComputeRootParameter(commandList.Get(), 3);
-    m_lightCB.SetAsComputeRootParameter(commandList.Get(), 4); 
+    m_lightCB.SetAsComputeRootParameter(commandList.Get(), 4); */
+
+    commandList->SetComputeRootShaderResourceView(0, meshResource.tlasBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(1, meshResource.indexBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(2, meshResource.vertexBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(3, meshResource.instanceInfoBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootShaderResourceView(4, materialBuffer.internalBuffer.gpuAddress);
+    commandList->SetComputeRootDescriptorTable(5, depthBuffer.srv);
+    SrvSetAsComputeRootParameter(commandList.Get(), 6);
+    commandList->SetComputeRootDescriptorTable(7, rtBuffer.uavGpuAddress);
+    m_sceneCB.SetAsComputeRootParameter(commandList.Get(), 8);
+    m_lightCB.SetAsComputeRootParameter(commandList.Get(), 9);
 
     commandList->Dispatch((m_width + 7) / 8, (m_height + 7) / 8, 1);
     /*D3D12_DISPATCH_RAYS_DESC dispatchDesc = {};
@@ -1263,11 +1307,16 @@ void RenderApplication::DispatchRaytracing()
     commandList->DispatchRays(&dispatchDesc);*/
 
     {
-        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        D3D12_RESOURCE_BARRIER barriers[2] = {};
+        barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
             depthBuffer.texture.resource.Get(),
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_DEPTH_WRITE);
-        commandList->ResourceBarrier(1, &barrier);
+        barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
+            rtBuffer.texture.resource.Get(),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_GENERIC_READ);
+        commandList->ResourceBarrier(_countof(barriers), barriers);
     }
 }
 
@@ -1480,9 +1529,12 @@ void RenderApplication::PopulateCommandList()
 
         //m_commandList->ResourceBarrier(2, barriers);
     }
+    
     // Main pass
     {
         RenderGBuffer(frustum);
+        // Raytrace shadow
+        DispatchRaytracing();
 
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier = CD3DX12_RESOURCE_BARRIER::Transition(
@@ -1501,7 +1553,6 @@ void RenderApplication::PopulateCommandList()
     }
     // Ray tracing
     {
-        DispatchRaytracing();
         //RenderRaytracing();
 
         if (show_another_window)

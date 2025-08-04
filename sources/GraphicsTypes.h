@@ -216,6 +216,7 @@ struct RenderTexture
 	Texture texture;
 	D3D12_CPU_DESCRIPTOR_HANDLE rtv = {};
 	D3D12_CPU_DESCRIPTOR_HANDLE uav = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE srv = {};
 	D3D12_GPU_DESCRIPTOR_HANDLE uavGpuAddress = {};
 
 	void Initialize(const RenderTextureInit& init);
